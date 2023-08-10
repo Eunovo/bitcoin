@@ -13,9 +13,42 @@
 #include <util/hash_type.h>
 
 #include <cassert>
+#include <stdexcept>
 #include <vector>
 
 typedef std::vector<unsigned char> valtype;
+
+SilentPaymentsDestination::SilentPaymentsDestination(
+    uint8_t version,
+    const CPubKey& scan_pubkey,
+    const CPubKey& spend_pubkey,
+    const std::span<unsigned char>& extension_data
+) : m_version(version), m_scan_pubkey(scan_pubkey),
+    m_spend_pubkey(spend_pubkey),
+    m_extension_data(extension_data.begin(), extension_data.end())
+{
+    assert(m_version <= 30);
+    assert(m_scan_pubkey.IsFullyValid() && m_scan_pubkey.IsCompressed());
+    assert(m_spend_pubkey.IsFullyValid() && m_spend_pubkey.IsCompressed());
+}
+
+std::optional<SilentPaymentsDestination> SilentPaymentsDestination::From(
+    uint8_t version,
+    const CPubKey& scan_pubkey,
+    const CPubKey& spend_pubkey,
+    const std::span<unsigned char>& extension_data
+) {
+    if (version >= 31) return std::nullopt;
+    if (version == 0 && !extension_data.empty()) {
+        // V0 address has no extension data
+        return std::nullopt;
+    }
+    if (!scan_pubkey.IsFullyValid() || !scan_pubkey.IsCompressed())
+        return std::nullopt;
+    if (!spend_pubkey.IsFullyValid() || !spend_pubkey.IsCompressed())
+        return std::nullopt;
+    return SilentPaymentsDestination(version, scan_pubkey, spend_pubkey, extension_data);
+}
 
 ScriptHash::ScriptHash(const CScript& in) : BaseHash(Hash160(in)) {}
 ScriptHash::ScriptHash(const CScriptID& in) : BaseHash{in} {}
@@ -108,6 +141,11 @@ namespace {
 class CScriptVisitor
 {
 public:
+    CScript operator()(const SilentPaymentsDestination& dest) const
+    {
+        return CScript();
+    }
+
     CScript operator()(const CNoDestination& dest) const
     {
         return dest.GetScript();
@@ -156,6 +194,7 @@ public:
     bool operator()(const PubKeyDestination& dest) const { return false; }
     bool operator()(const PKHash& dest) const { return true; }
     bool operator()(const ScriptHash& dest) const { return true; }
+    bool operator()(const SilentPaymentsDestination& dest) const { return true; }
     bool operator()(const WitnessV0KeyHash& dest) const { return true; }
     bool operator()(const WitnessV0ScriptHash& dest) const { return true; }
     bool operator()(const WitnessV1Taproot& dest) const { return true; }
