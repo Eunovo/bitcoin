@@ -68,6 +68,9 @@ const std::streamsize MAX_FILE_SIZE_PSBT = 100000000; // 100 MB
 // PSBT version number
 static constexpr uint32_t PSBT_HIGHEST_VERSION = 0;
 
+// PSBT prefix in base64
+static const std::string PSBT_BASE64_PREFIX = "cHNidP8";
+
 /** A structure for PSBT proprietary types */
 struct PSBTProprietary
 {

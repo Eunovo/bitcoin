@@ -535,6 +535,11 @@ std::string PSBTRoleName(PSBTRole role) {
 
 bool DecodeBase64PSBT(PartiallySignedTransaction& psbt, const std::string& base64_tx, std::string& error)
 {
+    if (!std::equal(base64_tx.begin(), base64_tx.begin() + 5, PSBT_BASE64_PREFIX.begin())) {
+        error = "invalid base64 psbt";
+        return false;
+    }
+
     auto tx_data = DecodeBase64(base64_tx);
     if (!tx_data) {
         error = "invalid base64";
