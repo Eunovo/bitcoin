@@ -1111,7 +1111,7 @@ protected:
         assert(m_nodes.size() == scripts.size());
         for (size_t pos = 0; pos < m_nodes.size(); ++pos) {
             if (m_nodes[pos].type == NodeType::NODE_HASH) {
-                builder.AddOmitted(m_nodes[pos].depth, uint256(Span(&(*scripts[pos].begin()), &(*scripts[pos].end()))));
+                builder.AddOmitted(m_nodes[pos].depth, uint256(Span(scripts[pos])));
             } else if (m_nodes[pos].type == NodeType::LEAF_SCRIPT) {
                 builder.Add(m_nodes[pos].depth, scripts[pos], m_nodes[pos].leaf_version);
             } else {
@@ -2042,6 +2042,7 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
                     NodeInfo node;
                     node.depth = depth;
                     node.leaf_version = leaf_ver;
+                    node.type = NodeType::LEAF_SCRIPT;
                     if (leaf_ver == TAPROOT_LEAF_TAPSCRIPT) {
                         subdesc = InferScript(CScript(script.begin(), script.end()), ParseScriptContext::P2TR, provider);
                     }
@@ -2057,6 +2058,17 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
                     auto key = InferXOnlyPubkey(tap.internal_key, ParseScriptContext::P2TR, provider);
                     return std::make_unique<TRDescriptor>(std::move(key), std::move(subscripts), std::move(nodes));
                 }
+            }
+            // If the tree is empty but it has a merkle root, infer the merkle root as a rawnode()
+            if (!tap.merkle_root.IsNull()) {
+                auto key = InferXOnlyPubkey(tap.internal_key, ParseScriptContext::P2TR, provider);
+                std::vector<unsigned char> merkle_root_bytes;
+                std::copy(tap.merkle_root.begin(), tap.merkle_root.end(), std::back_inserter(merkle_root_bytes));
+                std::vector<std::unique_ptr<DescriptorImpl>> descs;
+                descs.push_back(std::make_unique<RawNodeDescriptor>(merkle_root_bytes));
+                std::vector<NodeInfo> nodes; 
+                nodes.push_back(NodeInfo{depth: 0, type: NodeType::NODE_HASH});
+                return std::make_unique<TRDescriptor>(std::move(key), std::move(descs), std::move(nodes));
             }
         }
         // If the above doesn't work, construct a rawtr() descriptor with just the encoded x-only pubkey.
