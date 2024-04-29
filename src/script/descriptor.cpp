@@ -1088,31 +1088,31 @@ public:
 };
 
 /** Represents the type of a node in taproot descriptor script tree */
-enum NodeType {
+enum TRNodeType {
     LEAF_SCRIPT,
     NODE_HASH
 };
 
 /** A struct hold information on a node taproot descriptor script tree */
-struct NodeInfo {
+struct TRNodeInfo {
     int depth;
     int leaf_version;
-    NodeType type;
+    TRNodeType type;
 };
 
 /** A parsed tr(...) descriptor. */
 class TRDescriptor final : public DescriptorImpl
 {
-    std::vector<NodeInfo> m_nodes;
+    std::vector<TRNodeInfo> m_nodes;
 protected:
     std::vector<CScript> MakeScripts(const std::vector<CPubKey>& keys, Span<const CScript> scripts, FlatSigningProvider& out) const override
     {
         TaprootBuilder builder;
         assert(m_nodes.size() == scripts.size());
         for (size_t pos = 0; pos < m_nodes.size(); ++pos) {
-            if (m_nodes[pos].type == NodeType::NODE_HASH) {
+            if (m_nodes[pos].type == TRNodeType::NODE_HASH) {
                 builder.AddOmitted(m_nodes[pos].depth, uint256(Span(scripts[pos])));
-            } else if (m_nodes[pos].type == NodeType::LEAF_SCRIPT) {
+            } else if (m_nodes[pos].type == TRNodeType::LEAF_SCRIPT) {
                 builder.Add(m_nodes[pos].depth, scripts[pos], m_nodes[pos].leaf_version);
             } else {
                 assert(false);
@@ -1150,7 +1150,7 @@ protected:
         return true;
     }
 public:
-    TRDescriptor(std::unique_ptr<PubkeyProvider> internal_key, std::vector<std::unique_ptr<DescriptorImpl>> descs, std::vector<NodeInfo> nodes) :
+    TRDescriptor(std::unique_ptr<PubkeyProvider> internal_key, std::vector<std::unique_ptr<DescriptorImpl>> descs, std::vector<TRNodeInfo> nodes) :
         DescriptorImpl(Vector(std::move(internal_key)), std::move(descs), "tr"), m_nodes(std::move(nodes))
     {
         assert(m_subdescriptor_args.size() == m_nodes.size());
@@ -1778,7 +1778,7 @@ std::unique_ptr<DescriptorImpl> ParseScript(uint32_t& key_exp_index, Span<const 
         }
         ++key_exp_index;
         std::vector<std::unique_ptr<DescriptorImpl>> subscripts; //!< list of script subexpressions
-        std::vector<NodeInfo> nodes;
+        std::vector<TRNodeInfo> nodes;
         std::vector<int> depths; //!< depth in the tree of each subexpression (same length subscripts)
         if (expr.size()) {
             if (!Const(",", expr)) {
@@ -1805,12 +1805,12 @@ std::unique_ptr<DescriptorImpl> ParseScript(uint32_t& key_exp_index, Span<const 
                 subscripts.emplace_back(ParseScript(key_exp_index, sarg, ParseScriptContext::P2TR, out, error));
                 if (!subscripts.back()) return nullptr;
                 depths.push_back(branches.size());
-                NodeInfo node;
+                TRNodeInfo node;
                 node.depth = branches.size();
                 node.leaf_version = TAPROOT_LEAF_TAPSCRIPT;
-                node.type = NodeType::LEAF_SCRIPT;
+                node.type = TRNodeType::LEAF_SCRIPT;
                 if (dynamic_cast<RawNodeDescriptor*>(subscripts.back().get())) {
-                    node.type = NodeType::NODE_HASH;
+                    node.type = TRNodeType::NODE_HASH;
                 }
                 nodes.push_back(node);
 
@@ -2036,13 +2036,13 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
                 // If that works, try to infer subdescriptors for all leaves.
                 bool ok = true;
                 std::vector<std::unique_ptr<DescriptorImpl>> subscripts; //!< list of script subexpressions
-                std::vector<NodeInfo> nodes;
+                std::vector<TRNodeInfo> nodes;
                 for (const auto& [depth, script, leaf_ver] : *tree) {
                     std::unique_ptr<DescriptorImpl> subdesc;
-                    NodeInfo node;
+                    TRNodeInfo node;
                     node.depth = depth;
                     node.leaf_version = leaf_ver;
-                    node.type = NodeType::LEAF_SCRIPT;
+                    node.type = TRNodeType::LEAF_SCRIPT;
                     if (leaf_ver == TAPROOT_LEAF_TAPSCRIPT) {
                         subdesc = InferScript(CScript(script.begin(), script.end()), ParseScriptContext::P2TR, provider);
                     }
@@ -2066,8 +2066,8 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
                 std::copy(tap.merkle_root.begin(), tap.merkle_root.end(), std::back_inserter(merkle_root_bytes));
                 std::vector<std::unique_ptr<DescriptorImpl>> descs;
                 descs.push_back(std::make_unique<RawNodeDescriptor>(merkle_root_bytes));
-                std::vector<NodeInfo> nodes; 
-                nodes.push_back(NodeInfo{depth: 0, type: NodeType::NODE_HASH});
+                std::vector<TRNodeInfo> nodes; 
+                nodes.push_back(TRNodeInfo{depth: 0, type: TRNodeType::NODE_HASH});
                 return std::make_unique<TRDescriptor>(std::move(key), std::move(descs), std::move(nodes));
             }
         }
