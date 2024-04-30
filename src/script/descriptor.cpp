@@ -1189,6 +1189,32 @@ public:
     std::optional<int64_t> ScriptSize() const override { return m_bytes.size(); }
 };
 
+/** A parsed rawleaf(...) descriptor */
+class RawLeafDescriptor final : public DescriptorImpl
+{
+    std::vector<unsigned char> m_leaf_script_bytes;
+    std::optional<int> m_leaf_version;
+protected:
+    std::string ToStringExtra() const override {
+        if (m_leaf_version.has_value()) {
+            return strprintf("%s,%x", HexStr(m_leaf_script_bytes), m_leaf_version.value());
+        }
+        return HexStr(m_leaf_script_bytes);
+    }
+    std::vector<CScript> MakeScripts(const std::vector<CPubKey>&, Span<const CScript>, FlatSigningProvider&) const override { return Vector(CScript(m_leaf_script_bytes.begin(), m_leaf_script_bytes.end())); }
+public:
+    RawLeafDescriptor(std::vector<unsigned char> leaf_script_bytes, std::optional<int> leaf_version = std::nullopt) : DescriptorImpl({}, "rawleaf"), m_leaf_script_bytes(leaf_script_bytes), m_leaf_version(leaf_version) {}
+
+    bool IsSolvable() const final { return false; }
+
+    bool IsSingleType() const final { return true; }
+    bool ToPrivateString(const SigningProvider& arg, std::string& out) const final { return false; }
+
+    std::optional<int64_t> ScriptSize() const override { return m_leaf_script_bytes.size(); }
+
+    std::optional<int> GetLeafVersion() const { return m_leaf_version; }
+};
+
 /* We instantiate Miniscript here with a simple integer as key type.
  * The value of these key integers are an index in the
  * DescriptorImpl::m_pubkey_args vector.
@@ -1812,6 +1838,12 @@ std::unique_ptr<DescriptorImpl> ParseScript(uint32_t& key_exp_index, Span<const 
                 if (dynamic_cast<RawNodeDescriptor*>(subscripts.back().get())) {
                     node.type = TRNodeType::NODE_HASH;
                 }
+                if (auto rawleaf = dynamic_cast<RawLeafDescriptor*>(subscripts.back().get())) {
+                    auto specified_leaf_version = rawleaf->GetLeafVersion();
+                    if (specified_leaf_version.has_value()) {
+                        node.leaf_version = specified_leaf_version.value();
+                    }
+                }
                 nodes.push_back(node);
 
                 // Process closing braces; one is expected for every right branch we were in.
@@ -1877,6 +1909,37 @@ std::unique_ptr<DescriptorImpl> ParseScript(uint32_t& key_exp_index, Span<const 
         }
         auto bytes = ParseHex(str);
         return std::make_unique<RawNodeDescriptor>(bytes);
+    }
+    if (ctx == ParseScriptContext::P2TR && Func("rawleaf", expr)) {
+        auto arg1 = Expr(expr);
+        std::string leaf_script(arg1.begin(), arg1.end());
+        if (!IsHex(leaf_script)) {
+            error = "Leaf Script is not hex";
+            return nullptr;
+        }
+        auto leaf_script_bytes = ParseHex(leaf_script);
+
+        if (!Const(",", expr)) {
+            // Leaf version not specified, return early
+            return std::make_unique<RawLeafDescriptor>(leaf_script_bytes);
+        }
+
+        // Read and process leaf version
+        auto arg2 = Expr(expr);
+        std::string leaf_version_str(arg2.begin(), arg2.end());
+        if (!IsHexNumber(leaf_version_str)) {
+            error = "Leaf Version is not hex";
+            return nullptr;
+        };
+        if (leaf_version_str.substr(0, 2) == "0x") {
+            leaf_version_str.erase(0, 2);
+        }
+        if (leaf_version_str.size() > 2) {
+            error = "Leaf Version is too large";
+            return nullptr;
+        }
+        int leaf_version = std::stoi(leaf_version_str, nullptr, 16);
+        return std::make_unique<RawLeafDescriptor>(leaf_script_bytes, leaf_version);
     }
     // Process miniscript expressions.
     {
