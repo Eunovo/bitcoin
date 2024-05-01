@@ -1908,7 +1908,14 @@ std::unique_ptr<DescriptorImpl> ParseScript(uint32_t& key_exp_index, Span<const 
             return nullptr;
         }
         auto bytes = ParseHex(str);
+        if (bytes.size() != 32) {
+            error = "256 bits digest expected";
+            return nullptr;
+        }
         return std::make_unique<RawNodeDescriptor>(bytes);
+    } else if (Func("rawnode", expr)) {
+        error = "Can only have rawnode() inside tr()";
+        return nullptr;
     }
     if (ctx == ParseScriptContext::P2TR && Func("rawleaf", expr)) {
         auto arg1 = Expr(expr);
@@ -1940,6 +1947,9 @@ std::unique_ptr<DescriptorImpl> ParseScript(uint32_t& key_exp_index, Span<const 
         }
         int leaf_version = std::stoi(leaf_version_str, nullptr, 16);
         return std::make_unique<RawLeafDescriptor>(leaf_script_bytes, leaf_version);
+    } else if (Func("rawleaf", expr)) {
+        error = "Can only have rawleaf() inside tr()";
+        return nullptr;
     }
     // Process miniscript expressions.
     {
