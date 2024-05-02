@@ -1192,27 +1192,29 @@ public:
 /** A parsed rawleaf(...) descriptor */
 class RawLeafDescriptor final : public DescriptorImpl
 {
-    std::vector<unsigned char> m_leaf_script_bytes;
+    CScript m_leaf_script;
     std::optional<int> m_leaf_version;
 protected:
     std::string ToStringExtra() const override {
         if (m_leaf_version.has_value()) {
-            return strprintf("%s,%x", HexStr(m_leaf_script_bytes), m_leaf_version.value());
+            return strprintf("%s,%x", HexStr(m_leaf_script), m_leaf_version.value());
         }
-        return HexStr(m_leaf_script_bytes);
+        return HexStr(m_leaf_script);
     }
-    std::vector<CScript> MakeScripts(const std::vector<CPubKey>&, Span<const CScript>, FlatSigningProvider&) const override { return Vector(CScript(m_leaf_script_bytes.begin(), m_leaf_script_bytes.end())); }
+    std::vector<CScript> MakeScripts(const std::vector<CPubKey>&, Span<const CScript>, FlatSigningProvider&) const override { return Vector(m_leaf_script); }
 public:
-    RawLeafDescriptor(std::vector<unsigned char> leaf_script_bytes, std::optional<int> leaf_version = std::nullopt) : DescriptorImpl({}, "rawleaf"), m_leaf_script_bytes(leaf_script_bytes), m_leaf_version(leaf_version) {}
+    RawLeafDescriptor(CScript leaf_script, std::optional<int> leaf_version = std::nullopt) : DescriptorImpl({}, "rawleaf"), m_leaf_script(leaf_script), m_leaf_version(leaf_version) {}
 
     bool IsSolvable() const final { return false; }
 
     bool IsSingleType() const final { return true; }
     bool ToPrivateString(const SigningProvider& arg, std::string& out) const final { return false; }
 
-    std::optional<int64_t> ScriptSize() const override { return m_leaf_script_bytes.size(); }
+    std::optional<int64_t> ScriptSize() const override { return m_leaf_script.size(); }
 
     std::optional<int> GetLeafVersion() const { return m_leaf_version; }
+
+    void SetLeafVersion(int version) { m_leaf_version = version; }
 };
 
 /* We instantiate Miniscript here with a simple integer as key type.
@@ -1919,16 +1921,17 @@ std::unique_ptr<DescriptorImpl> ParseScript(uint32_t& key_exp_index, Span<const 
     }
     if (ctx == ParseScriptContext::P2TR && Func("rawleaf", expr)) {
         auto arg1 = Expr(expr);
-        std::string leaf_script(arg1.begin(), arg1.end());
-        if (!IsHex(leaf_script)) {
+        std::string leaf_script_str(arg1.begin(), arg1.end());
+        if (!IsHex(leaf_script_str)) {
             error = "Leaf Script is not hex";
             return nullptr;
         }
-        auto leaf_script_bytes = ParseHex(leaf_script);
+        auto leaf_script_bytes = ParseHex(leaf_script_str);
+        CScript leaf_script(leaf_script_bytes.begin(), leaf_script_bytes.end());
 
         if (!Const(",", expr)) {
             // Leaf version not specified, return early
-            return std::make_unique<RawLeafDescriptor>(leaf_script_bytes);
+            return std::make_unique<RawLeafDescriptor>(leaf_script);
         }
 
         // Read and process leaf version
@@ -1946,7 +1949,7 @@ std::unique_ptr<DescriptorImpl> ParseScript(uint32_t& key_exp_index, Span<const 
             return nullptr;
         }
         int leaf_version = std::stoi(leaf_version_str, nullptr, 16);
-        return std::make_unique<RawLeafDescriptor>(leaf_script_bytes, leaf_version);
+        return std::make_unique<RawLeafDescriptor>(leaf_script, leaf_version);
     } else if (Func("rawleaf", expr)) {
         error = "Can only have rawleaf() inside tr()";
         return nullptr;
@@ -2116,13 +2119,19 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
                     node.depth = depth;
                     node.leaf_version = leaf_ver;
                     node.type = TRNodeType::LEAF_SCRIPT;
-                    if (leaf_ver == TAPROOT_LEAF_TAPSCRIPT) {
-                        subdesc = InferScript(CScript(script.begin(), script.end()), ParseScriptContext::P2TR, provider);
+
+                    subdesc = InferScript(CScript(script.begin(), script.end()), ParseScriptContext::P2TR, provider);
+                    if (auto rawleaf = dynamic_cast<RawLeafDescriptor*>(subdesc.get())) {
+                        rawleaf->SetLeafVersion(leaf_ver);
                     }
+                    
                     if (!subdesc) {
                         ok = false;
                         break;
                     } else {
+                        if (auto rawleaf = dynamic_cast<RawLeafDescriptor*>(subdesc.get())) {
+                            auto ver = rawleaf->GetLeafVersion();
+                        }
                         subscripts.push_back(std::move(subdesc));
                         nodes.push_back(node);
                     }
@@ -2160,6 +2169,10 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
         if (node && node->IsSane()) {
             return std::make_unique<MiniscriptDescriptor>(std::move(parser.m_keys), std::move(node));
         }
+    }
+
+    if (ctx == ParseScriptContext::P2TR) {
+        return std::make_unique<RawLeafDescriptor>(script);
     }
 
     // The following descriptors are all top-level only descriptors.
