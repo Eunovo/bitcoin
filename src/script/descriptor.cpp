@@ -556,6 +556,47 @@ public:
     }
 };
 
+/** An object representing a parsed silent payment public key in a descriptor. */
+class SilentPubkeyProvider final : public PubkeyProvider
+{
+    SpPubKey m_sppk;
+    // KeyPath m_path;
+
+    bool GetSpKey(const SigningProvider& arg, SpKey& ret) const
+    {
+        CKey scanKey;
+        CKey spendKey;
+        if (!arg.GetKey(m_sppk.scanKey.GetID(), scanKey)) return false;
+        if (!arg.GetKey(m_sppk.spendKey.GetID(), spendKey)) return false;
+        ret.scanKey = scanKey;
+        ret.spendKey = spendKey;
+        ret.maximumNumberOfLabels = m_sppk.maximumNumberOfLabels;
+        std::copy(m_sppk.version, m_sppk.version + sizeof(m_sppk.version), ret.version);
+        std::copy(m_sppk.vchFingerprint, m_sppk.vchFingerprint + sizeof(ret.vchFingerprint), ret.vchFingerprint);
+        return true;
+    }
+
+public:
+    SilentPubkeyProvider(uint32_t exp_index, const SpPubKey& sppk) : PubkeyProvider(exp_index), m_sppk(sppk), m_path(path) {}
+    bool IsRange() const override { return false; }
+    size_t GetSize() const override { return BIP352_SPKEY_SIZE; }
+    std::string ToString(StringType type, bool normalized) const
+    {
+        std::string ret = EncodeSpPubKey(m_sppk);
+        return ret;
+    }
+    std::string ToString(StringType type=StringType::PUBLIC) const override
+    {
+        return ToString(type, /*normalized=*/false);
+    }
+    bool ToPrivateString(const SigningProvider& arg, std::string& out) const override
+    {
+        SpKey key;
+        if (!GetSpKey(arg, key)) return false;
+        out = EncodeSpKey(key);
+    }
+};
+
 /** Base class for all Descriptor implementations. */
 class DescriptorImpl : public Descriptor
 {
@@ -1300,6 +1341,19 @@ public:
     }
 };
 
+/** A parsed sp(...) descriptor */
+class SpDescriptor final : public DescriptorImpl
+{
+protected:
+    std::vector<CScript> MakeScripts(const std::vector<CPubKey>&, Span<const CScript>, FlatSigningProvider&) const override { return std::vector<CScript>(); }
+public:
+    SpDescriptor(std::unique_ptr<PubkeyProvider> spkey) : DescriptorImpl(Vector(std::move(spkey)), "sp") {};
+    SpDescriptor(std::unique_ptr<PubkeyProvider> scankey, std::unique_ptr<PubkeyProvider> spendkey) : DescriptorImpl(Vector(std::move(scankey), std::move(spendkey)), "sp") {};
+
+    std::optional<OutputType> GetOutputType() const override { return OutputType::SILENT_PAYMENT; }
+    bool IsSingleType() const final { return true; }
+};
+
 ////////////////////////////////////////////////////////////////////////////
 // Parser                                                                 //
 ////////////////////////////////////////////////////////////////////////////
@@ -1310,6 +1364,7 @@ enum class ParseScriptContext {
     P2WPKH,  //!< Inside wpkh() (no script, pubkey only)
     P2WSH,   //!< Inside wsh() (script becomes v0 witness script)
     P2TR,    //!< Inside tr() (either internal key, or BIP342 script leaf)
+    SP,      //!< Inside sp() (spkeys are only valid under sp())
 };
 
 /**
@@ -1601,6 +1656,29 @@ std::unique_ptr<DescriptorImpl> ParseScript(uint32_t& key_exp_index, Span<const 
         ++key_exp_index;
         return std::make_unique<PKDescriptor>(std::move(pubkey), ctx == ParseScriptContext::P2TR);
     }
+    
+    if (ctx == ParseScriptContext::TOP && Func("sp", expr)) {
+        auto firstKey = ParsePubkey(key_exp_index, expr, ParseScriptContext::SP, out, error);
+        if (!firstKey) {
+            error = strprintf("sp(): %s", error);
+            return nullptr;
+        }
+        ++key_exp_index;
+        if (!Const(",", expr)) {
+            return std::make_unique<SpDescriptor>(std::move(firstKey));
+        }
+        auto spendKey = ParsePubkey(key_exp_index, expr, ctx, out, error);
+        if (!spendKey) {
+            error = strprintf("sp(): %s", error);
+            return nullptr;
+        }
+        ++key_exp_index;
+        return std::make_unique<SpDescriptor>(std::move(firstKey), std::move(spendKey));
+    } else if (Func("sp", expr)) {
+        error = "Can only have sp() at top level";
+        return nullptr;
+    }
+
     if ((ctx == ParseScriptContext::TOP || ctx == ParseScriptContext::P2SH || ctx == ParseScriptContext::P2WSH) && Func("pkh", expr)) {
         auto pubkey = ParsePubkey(key_exp_index, expr, ctx, out, error);
         if (!pubkey) {

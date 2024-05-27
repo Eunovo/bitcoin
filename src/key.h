@@ -244,6 +244,34 @@ struct CExtKey {
     void SetSeed(Span<const std::byte> seed);
 };
 
+struct SpKey {
+    unsigned char version[1];
+    unsigned char vchFingerprint[4];
+    int maximumNumberOfLabels;
+    CKey scanKey;
+    CKey spendKey;
+
+    friend bool operator==(const SpKey& a, const SpKey& b)
+    {
+        return memcmp(a.version, b.version, sizeof(version)) == 0 &&
+            memcmp(a.vchFingerprint, b.vchFingerprint, sizeof(vchFingerprint)) == 0 &&
+            memcmp(a.maximumNumberOfLabels, b.maximumNumberOfLabels, sizeof(maximumNumberOfLabels)) == 0 &&
+            a.scanKey == b.scanKey &&
+            a.spendKey == b.spendKey;
+    }
+
+    SpKey() = default;
+    SpKey(const SpPubKey& sppub, const CKey& scanKey_in, const CKey& spendKey_in) : maximumNumberOfLabels(sppub.maxinumNumberOfLabels), scanKey(scanKey_in), spendKey(spendKey_in)
+    {
+        std::copy(sppub.version, spppub.version + sizeof(spppub.version), version);
+        std::copy(sppub.vchFingerprint, spppub.vchFingerprint + sizeof(sppub.vchFingerprint), vchFingerprint);
+    }
+
+    void Encode(unsigned char code[BIP32_SPKEY_SIZE]) const;
+    void Decode(const unsigned char code[BIP32_SPKEY_SIZE]);
+    SpPubKey Neuter();
+}
+
 /** Initialize the elliptic curve support. May not be called twice without calling ECC_Stop first. */
 void ECC_Start();
 
