@@ -1002,9 +1002,9 @@ public:
     DescriptorScriptPubKeyMan& LoadDescriptorScriptPubKeyMan(uint256 id, WalletDescriptor& desc);
 
     //! Instantion a silent payments spkm from existing data
-    void LoadSilentPaymentsSPKM(const uint256& id, const V0SilentPaymentDestination& dest, const CKey& scan_key, const CKey& spend_key, const std::vector<unsigned char>& spend_ckey, const std::vector<uint256>& tweaks, int64_t creation_time, int64_t labels_used);
-    //! Retrieve all SilentPaymentsSPKMs in the wallet
-    std::set<SilentPaymentsSPKM*> GetSilentPaymentsSPKMs() const;
+    // void LoadSilentPaymentsSPKM(const uint256& id, const V0SilentPaymentDestination& dest, const CKey& scan_key, const CKey& spend_key, const std::vector<unsigned char>& spend_ckey, const std::vector<uint256>& tweaks, int64_t creation_time, int64_t labels_used);
+    //! Retrieve all SilentPayments DescriptorScriptPubKeyMans in the wallet
+    std::set<DescriptorScriptPubKeyMan*> GetSilentPaymentsSPKMs() const;
 
     //! Adds the active ScriptPubKeyMan for the specified type and internal. Writes it to the wallet file
     //! @param[in] id The unique id for the ScriptPubKeyMan

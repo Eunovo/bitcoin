@@ -10,6 +10,7 @@
 #include <script/script.h>
 #include <script/sign.h>
 #include <script/solver.h>
+#include <silentpaymentkey.h>
 #include <util/bip32.h>
 #include <util/check.h>
 #include <util/strencodings.h>
@@ -2004,6 +2005,26 @@ bool LegacyScriptPubKeyMan::DeleteRecords()
     return batch.EraseRecords(DBKeys::LEGACY_TYPES);
 }
 
+DescriptorScriptPubKeyMan::DescriptorScriptPubKeyMan(WalletStorage& storage, WalletDescriptor& descriptor, int64_t keypool_size)
+    :   ScriptPubKeyMan(storage),
+        m_wallet_descriptor(descriptor),
+        m_keypool_size(keypool_size)
+{
+    // Populate m_map_label_tweaks if descriptor is Silent Payments
+    if (descriptor.descriptor->GetOutputType() == OutputType::SILENT_PAYMENT) {
+        auto sppubkey = GetSpPubKeyFrom(descriptor.descriptor);
+        if (!sppubkey.has_value()) {
+            throw std::runtime_error(std::string(__func__) + ": descriptor expansion failed");
+        }
+        auto change_label_data = BIP352::CreateLabelTweak(sppubkey->scanKey, 0);
+        m_map_label_tweaks.insert(change_label_data);
+        for (int i = 1; i < descriptor.next_index; i++) {
+            // Add the other generated labelled destinations
+            m_map_label_tweaks.insert(BIP352::CreateLabelTweak(sppubkey->scanKey, i));
+        }
+    }
+}
+
 util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const OutputType type)
 {
     // Returns true if this descriptor supports getting new addresses. Conditions where we may be unable to fetch them (e.g. locked) are caught later
@@ -2019,24 +2040,41 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
             throw std::runtime_error(std::string(__func__) + ": Types are inconsistent. Stored type does not match type of newly generated address");
         }
 
-        TopUp();
-
-        // Get the scriptPubKey from the descriptor
-        FlatSigningProvider out_keys;
-        std::vector<CScript> scripts_temp;
-        if (m_wallet_descriptor.range_end <= m_max_cached_index && !TopUp(1)) {
-            // We can't generate anymore keys
-            return util::Error{_("Error: Keypool ran out, please call keypoolrefill first")};
-        }
-        if (!m_wallet_descriptor.descriptor->ExpandFromCache(m_wallet_descriptor.next_index, m_wallet_descriptor.cache, scripts_temp, out_keys)) {
-            // We can't generate anymore keys
-            return util::Error{_("Error: Keypool ran out, please call keypoolrefill first")};
-        }
-
         CTxDestination dest;
-        if (!ExtractDestination(scripts_temp[0], dest)) {
-            return util::Error{_("Error: Cannot extract destination from the generated scriptpubkey")}; // shouldn't happen
+
+        if (type == OutputType::SILENT_PAYMENT) {
+            auto sppubkey = GetSpPubKeyFrom(m_wallet_descriptor.descriptor);
+            if (!sppubkey.has_value()) {
+                throw std::runtime_error(std::string(__func__) + ": descriptor expansion failed");
+            }
+            V0SilentPaymentDestination main_dest;
+            main_dest.m_scan_pubkey = sppubkey->scanKey.GetPubKey();
+            main_dest.m_spend_pubkey = sppubkey->spendKey;
+            auto label_data = BIP352::CreateLabelTweak(sppubkey->scanKey, m_wallet_descriptor.next_index);
+            m_map_label_tweaks.insert(label_data);
+            V0SilentPaymentDestination label_dest = BIP352::GenerateSilentPaymentLabelledAddress(main_dest, label_data.second);
+            dest = CTxDestination{label_dest};
+        } else {
+            TopUp();
+
+            // Get the scriptPubKey from the descriptor
+            FlatSigningProvider out_keys;
+            std::vector<CScript> scripts_temp;
+            if (m_wallet_descriptor.range_end <= m_max_cached_index && !TopUp(1)) {
+                // We can't generate anymore keys
+                return util::Error{_("Error: Keypool ran out, please call keypoolrefill first")};
+            }
+            if (!m_wallet_descriptor.descriptor->ExpandFromCache(m_wallet_descriptor.next_index, m_wallet_descriptor.cache, scripts_temp, out_keys)) {
+                // We can't generate anymore keys
+                return util::Error{_("Error: Keypool ran out, please call keypoolrefill first")};
+            }
+
+            CTxDestination dest;
+            if (!ExtractDestination(scripts_temp[0], dest)) {
+                return util::Error{_("Error: Cannot extract destination from the generated scriptpubkey")}; // shouldn't happen
+            }
         }
+
         m_wallet_descriptor.next_index++;
         WalletBatch(m_storage.GetDatabase()).WriteDescriptor(GetID(), m_wallet_descriptor);
         return dest;
@@ -2046,10 +2084,47 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
 isminetype DescriptorScriptPubKeyMan::IsMine(const CScript& script) const
 {
     LOCK(cs_desc_man);
-    if (m_map_script_pub_keys.count(script) > 0) {
+
+    if (m_wallet_descriptor.descriptor->GetOutputType() != OutputType::SILENT_PAYMENT) {
+        if (m_map_script_pub_keys.count(script) > 0) {
+            return ISMINE_SPENDABLE;
+        }
+        return ISMINE_NO;
+    }
+    
+    if (m_map_spk_tweaks.count(script) > 0) {
         return ISMINE_SPENDABLE;
     }
     return ISMINE_NO;
+}
+
+isminetype DescriptorScriptPubKeyMan::IsMine(std::vector<XOnlyPubKey> output_keys, BIP352::PubTweakData& public_data)
+{
+    LOCK(cs_desc_man);
+    if (m_wallet_descriptor.descriptor->GetOutputType() != OutputType::SILENT_PAYMENT) {
+        return ISMINE_NO;
+    }
+    auto sppubkey = GetSpPubKeyFrom(m_wallet_descriptor.descriptor);
+    if (!sppubkey.has_value()) {
+        throw std::runtime_error(std::string(__func__) + ": descriptor expansion failed");
+    }
+    auto tweaks = BIP352::ScanForSilentPaymentOutputs(sppubkey->scanKey, public_data, sppubkey->spendKey, output_keys, m_map_label_tweaks);
+    if (!tweaks.has_value()) {
+        return ISMINE_NO;
+    }
+    WalletBatch batch(m_storage.GetDatabase());
+    if (!batch.TxnBegin()) {
+        throw std::runtime_error(strprintf("Error during descriptors tweak top up. Cannot start db transaction wallet %s", m_storage.GetDisplayName()));
+    }
+    for (const auto& tweak : *tweaks) {
+        if (!TopUpWithDB(batch, tweak.tweak)) {
+            throw std::runtime_error(std::string(__func__) + ": writing tweak failed");
+        }
+    }
+    if (!batch.TxnCommit()) {
+        throw std::runtime_error(strprintf("Error during descriptors tweak top up. Cannot commit changes for wallet %s", m_storage.GetDisplayName()));
+    }
+    return ISMINE_SPENDABLE;
 }
 
 bool DescriptorScriptPubKeyMan::CheckDecryptionKey(const CKeyingMaterial& master_key)
@@ -2110,6 +2185,16 @@ bool DescriptorScriptPubKeyMan::Encrypt(const CKeyingMaterial& master_key, Walle
 util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetReservedDestination(const OutputType type, bool internal, int64_t& index, CKeyPool& keypool)
 {
     LOCK(cs_desc_man);
+
+    if (type == OutputType::SILENT_PAYMENT) {
+        int64_t index_cache = m_wallet_descriptor.next_index;
+        m_wallet_descriptor.next_index = 0; // Set to zero for change
+        auto op_dest = GetNewDestination(type);
+        index = 0;
+        m_wallet_descriptor.next_index = index_cache; // Restore next_index
+        return op_dest;
+    }
+
     auto op_dest = GetNewDestination(type);
     index = m_wallet_descriptor.next_index - 1;
     return op_dest;
@@ -2249,6 +2334,31 @@ bool DescriptorScriptPubKeyMan::TopUpWithDB(WalletBatch& batch, unsigned int siz
     return true;
 }
 
+bool DescriptorScriptPubKeyMan::TopUp(const uint256& tweak)
+{
+    WalletBatch batch(m_storage.GetDatabase());
+    if (!batch.TxnBegin()) return false;
+    bool res = TopUpWithDB(batch, tweak);
+    if (!batch.TxnCommit()) throw std::runtime_error(strprintf("Error during descriptors tweak top up. Cannot commit changes for wallet %s", m_storage.GetDisplayName()));
+    return res;
+}
+
+bool DescriptorScriptPubKeyMan::TopUpWithDB(WalletBatch& batch, const uint256& tweak)
+{
+    LOCK(cs_desc_man);
+    assert(m_wallet_descriptor.descriptor->GetOutputType() == OutputType::SILENT_PAYMENT); // Should only ever be called on silent payment descriptorspkman
+    auto sppubkey = GetSpPubKeyFrom(m_wallet_descriptor.descriptor);
+    if (!sppubkey.has_value()) {
+        throw std::runtime_error(std::string(__func__) + ": descriptor expansion failed");
+    }
+    CPubKey tweaked_pub{sppubkey->spendKey};
+    tweaked_pub.TweakAdd(tweak.data());
+    const auto spk = GetScriptForDestination(WitnessV1Taproot{XOnlyPubKey{tweaked_pub}});
+    m_map_spk_tweaks.emplace(spk, tweak);
+    m_storage.TopUpCallback({spk}, this);
+    return batch.WriteSilentPaymentsTweak(GetID(), tweak);
+}
+
 std::vector<WalletDestination> DescriptorScriptPubKeyMan::MarkUnusedAddresses(const CScript& script)
 {
     LOCK(cs_desc_man);
@@ -2328,11 +2438,14 @@ bool DescriptorScriptPubKeyMan::SetupDescriptorGeneration(WalletBatch& batch, co
         return false;
     }
 
-    m_wallet_descriptor = GenerateWalletDescriptor(master_key.Neuter(), addr_type, internal);
+    std::vector<std::pair<CKey, CPubKey>> keys;
+    m_wallet_descriptor = GenerateWalletDescriptor(master_key, addr_type, internal, keys);
 
-    // Store the master private key, and descriptor
-    if (!AddDescriptorKeyWithDB(batch, master_key.key, master_key.key.GetPubKey())) {
-        throw std::runtime_error(std::string(__func__) + ": writing descriptor master private key failed");
+    // Store keys used by wallet descriptor
+    for (const auto& key_pair : keys) {
+        if (!AddDescriptorKeyWithDB(batch, key_pair.first, key_pair.second)) {
+            throw std::runtime_error(std::string(__func__) + ": writing descriptor private key failed");
+        }
     }
     if (!batch.WriteDescriptor(GetID(), m_wallet_descriptor)) {
         throw std::runtime_error(std::string(__func__) + ": writing descriptor failed");
@@ -2353,12 +2466,16 @@ bool DescriptorScriptPubKeyMan::IsHDEnabled() const
 
 bool DescriptorScriptPubKeyMan::CanGetAddresses(bool internal) const
 {
-    // We can only give out addresses from descriptors that are single type (not combo), ranged,
+    // We can only give out addresses from silent payment descriptors or
+    // descriptors that are single type (not combo), ranged,
     // and either have cached keys or can generate more keys (ignoring encryption)
     LOCK(cs_desc_man);
-    return m_wallet_descriptor.descriptor->IsSingleType() &&
+    bool is_silent_payment = m_wallet_descriptor.descriptor->GetOutputType() == OutputType::SILENT_PAYMENT;
+    return is_silent_payment || (
+        m_wallet_descriptor.descriptor->IsSingleType() &&
            m_wallet_descriptor.descriptor->IsRange() &&
-           (HavePrivateKeys() || m_wallet_descriptor.next_index < m_wallet_descriptor.range_end);
+           (HavePrivateKeys() || m_wallet_descriptor.next_index < m_wallet_descriptor.range_end)
+    );
 }
 
 bool DescriptorScriptPubKeyMan::HavePrivateKeys() const
@@ -2390,14 +2507,45 @@ std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvid
 {
     LOCK(cs_desc_man);
 
-    // Find the index of the script
-    auto it = m_map_script_pub_keys.find(script);
-    if (it == m_map_script_pub_keys.end()) {
-        return nullptr;
-    }
-    int32_t index = it->second;
+    if (m_wallet_descriptor.descriptor->GetOutputType() != OutputType::SILENT_PAYMENT) {
+        // Find the index of the script
+        auto it = m_map_script_pub_keys.find(script);
+        if (it == m_map_script_pub_keys.end()) {
+            return nullptr;
+        }
+        int32_t index = it->second;
 
-    return GetSigningProvider(index, include_private);
+        return GetSigningProvider(index, include_private);
+    }
+
+    std::unique_ptr<FlatSigningProvider> out_keys = std::make_unique<FlatSigningProvider>();
+    if (m_map_spk_tweaks.count(script) == 0) {
+        return out_keys;
+    }
+
+    const uint256& tweak = m_map_spk_tweaks.at(script);
+    auto sppubkey = GetSpPubKeyFrom(m_wallet_descriptor.descriptor);
+    if (!sppubkey.has_value()) {
+        throw std::runtime_error(std::string(__func__) + ": descriptor expansion failed");
+    }
+    CPubKey tweaked_pubkey = sppubkey->spendKey;
+    tweaked_pubkey.TweakAdd(tweak.data());
+    out_keys->pubkeys.emplace(tweaked_pubkey.GetID(), tweaked_pubkey);
+
+    if (include_private) {
+        auto spend_key = GetKey(sppubkey->spendKey.GetID());
+        if (!spend_key.has_value()) {
+            // We don't have spend private key
+            return out_keys;
+        }
+        spend_key->TweakAdd(tweak.data());
+        if (spend_key.value().IsValid()) {
+            assert(spend_key.value().GetPubKey() == tweaked_pubkey);
+            out_keys->keys.emplace(tweaked_pubkey.GetID(), spend_key.value());
+        }
+    }
+
+    return out_keys;
 }
 
 std::unique_ptr<FlatSigningProvider> DescriptorScriptPubKeyMan::GetSigningProvider(const CPubKey& pubkey) const
@@ -2641,6 +2789,20 @@ void DescriptorScriptPubKeyMan::SetCache(const DescriptorCache& cache)
     m_storage.TopUpCallback(new_spks, this);
 }
 
+void DescriptorScriptPubKeyMan::AddTweak(const uint256& tweak)
+{
+    LOCK(cs_desc_man);
+    assert(m_wallet_descriptor.descriptor->GetOutputType() == OutputType::SILENT_PAYMENT); // Should only ever be called on silent payment descriptorspkman
+    auto sppubkey = GetSpPubKeyFrom(m_wallet_descriptor.descriptor);
+    if (!sppubkey.has_value()) {
+        throw std::runtime_error(std::string(__func__) + ": descriptor expansion failed");
+    }
+    CPubKey tweaked_pub{sppubkey->spendKey};
+    tweaked_pub.TweakAdd(tweak.data());
+    const auto spk = GetScriptForDestination(WitnessV1Taproot{XOnlyPubKey{tweaked_pub}});
+    m_map_spk_tweaks.emplace(spk, tweak);
+}
+
 bool DescriptorScriptPubKeyMan::AddKey(const CKeyID& key_id, const CKey& key)
 {
     LOCK(cs_desc_man);
@@ -2742,6 +2904,12 @@ bool DescriptorScriptPubKeyMan::GetDescriptorString(std::string& out, const bool
     }
 
     return m_wallet_descriptor.descriptor->ToNormalizedString(provider, out, &m_wallet_descriptor.cache);
+}
+
+std::optional<OutputType> DescriptorScriptPubKeyMan::GetOutputType() const
+{
+    LOCK(cs_desc_man);
+    return m_wallet_descriptor.descriptor->GetOutputType();
 }
 
 void DescriptorScriptPubKeyMan::UpgradeDescriptorCache()

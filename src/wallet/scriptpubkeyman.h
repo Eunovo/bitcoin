@@ -6,6 +6,7 @@
 #define BITCOIN_WALLET_SCRIPTPUBKEYMAN_H
 
 #include <addresstype.h>
+#include <common/bip352.h>
 #include <logging.h>
 #include <psbt.h>
 #include <script/descriptor.h>
@@ -565,6 +566,8 @@ private:
     using PubKeyMap = std::map<CPubKey, int32_t>; // Map of pubkeys involved in scripts to descriptor range index
     using CryptedKeyMap = std::map<CKeyID, std::pair<CPubKey, std::vector<unsigned char>>>;
     using KeyMap = std::map<CKeyID, CKey>;
+    using TweakMap = std::unordered_map<CScript, uint256, SaltedSipHasher>;
+    using LabelTweakMap = std::map<CPubKey, uint256>;
 
     ScriptPubKeyMap m_map_script_pub_keys GUARDED_BY(cs_desc_man);
     PubKeyMap m_map_pubkeys GUARDED_BY(cs_desc_man);
@@ -572,6 +575,9 @@ private:
 
     KeyMap m_map_keys GUARDED_BY(cs_desc_man);
     CryptedKeyMap m_map_crypted_keys GUARDED_BY(cs_desc_man);
+
+    TweakMap m_map_spk_tweaks GUARDED_BY(cs_desc_man);
+    LabelTweakMap m_map_label_tweaks GUARDED_BY(cs_desc_man);
 
     //! keeps track of whether Unlock has run a thorough check before
     bool m_decryption_thoroughly_checked = false;
@@ -599,11 +605,7 @@ protected:
     int64_t m_keypool_size GUARDED_BY(cs_desc_man){DEFAULT_KEYPOOL_SIZE};
 
 public:
-    DescriptorScriptPubKeyMan(WalletStorage& storage, WalletDescriptor& descriptor, int64_t keypool_size)
-        :   ScriptPubKeyMan(storage),
-            m_wallet_descriptor(descriptor),
-            m_keypool_size(keypool_size)
-        {}
+    DescriptorScriptPubKeyMan(WalletStorage& storage, WalletDescriptor& descriptor, int64_t keypool_size);
     DescriptorScriptPubKeyMan(WalletStorage& storage, int64_t keypool_size)
         :   ScriptPubKeyMan(storage),
             m_keypool_size(keypool_size)
@@ -613,6 +615,7 @@ public:
 
     util::Result<CTxDestination> GetNewDestination(const OutputType type) override;
     isminetype IsMine(const CScript& script) const override;
+    isminetype IsMine(std::vector<XOnlyPubKey> output_keys, BIP352::PubTweakData& public_data);
 
     bool CheckDecryptionKey(const CKeyingMaterial& master_key) override;
     bool Encrypt(const CKeyingMaterial& master_key, WalletBatch* batch) override;
@@ -625,6 +628,11 @@ public:
     // more on ephemeral data than LegacyScriptPubKeyMan. For wallets using unhardened derivation
     // (with or without private keys), the "keypool" is a single xpub.
     bool TopUp(unsigned int size = 0) override;
+    // Adds a tweak to m_map_spk_tweaks and writes to DB
+    bool TopUp(const uint256& tweak);
+
+    // Adds a tweak to m_map_spk_tweaks and writes to DB
+    bool TopUpWithDB(WalletBatch& batch, const uint256& tweak);
 
     std::vector<WalletDestination> MarkUnusedAddresses(const CScript& script) override;
 
@@ -658,6 +666,8 @@ public:
     uint256 GetID() const override;
 
     void SetCache(const DescriptorCache& cache);
+    //! Add tweak into m_map_spk_tweaks without saving to DB
+    void AddTweak(const uint256& tweak);
 
     bool AddKey(const CKeyID& key_id, const CKey& key);
     bool AddCryptedKey(const CKeyID& key_id, const CPubKey& pubkey, const std::vector<unsigned char>& crypted_key);
@@ -669,6 +679,8 @@ public:
     bool CanUpdateToWalletDescriptor(const WalletDescriptor& descriptor, std::string& error);
     void AddDescriptorKey(const CKey& key, const CPubKey &pubkey);
     void WriteDescriptor();
+
+    std::optional<OutputType> GetOutputType() const;
 
     WalletDescriptor GetWalletDescriptor() const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
     std::unordered_set<CScript, SaltedSipHasher> GetScriptPubKeys() const override;

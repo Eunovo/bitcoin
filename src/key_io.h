@@ -10,6 +10,7 @@
 #include <chainparams.h>
 #include <key.h>
 #include <pubkey.h>
+#include <silentpaymentkey.h>
 
 #include <string>
 

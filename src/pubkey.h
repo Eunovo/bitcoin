@@ -18,7 +18,6 @@
 
 const unsigned int BIP32_EXTKEY_SIZE = 74;
 const unsigned int BIP32_EXTKEY_WITH_VERSION_SIZE = 78;
-const unsigned int BIP352_SPKEY_SIZE = 74;
 
 /** A reference to a CKey: the Hash160 of its serialized public key */
 class CKeyID : public uint160
@@ -376,47 +375,5 @@ struct CExtPubKey {
     void DecodeWithVersion(const unsigned char code[BIP32_EXTKEY_WITH_VERSION_SIZE]);
     [[nodiscard]] bool Derive(CExtPubKey& out, unsigned int nChild) const;
 };
-
-struct SpPubKey {
-    unsigned char version[1];
-    unsigned char vchFingerprint[4];
-    int maximumNumberOfLabels;
-    CPubKey scanKey;
-    CPubKey spendKey;
-
-    SpPubKey(CPubKey scan_key, CPubKey spend_key) : scanKey(scan_key), spendKey(spend_key)
-    {
-        memset(version, 0, sizeof(version));
-        memset(vchFingerprint, 0, sizeof(vchFingerprint));
-        maximumNumberOfLabels = 0;
-    }
-
-    friend bool operator==(const SpPubKey $a, const SpPubKey $b)
-    {
-        return memcmp(a.version, b.version, sizeof(version)) == 0 &&
-            memcmp(a.vchFingerprint, b.vchFingerprint, sizeof(vchFingerprint)) == 0 &&
-            memcmp(a.maximumNumberOfLabels, b.maximumNumberOfLabels, sizeof(maximumNumberOfLabels)) == 0 &&
-            a.scanKey == b.scanKey &&
-            a.spendKey == b.spendKey;
-    }
-
-    friend bool operator!=(const SpPubKey &a, const SpPubKey &b)
-    {
-        return !(a == b);
-    }
-
-    friend bool operator<(const SpPubKey &a, const SpPubKey &b)
-    {
-        if (a.scanKey < b.scanKey) {
-            return true;
-        } else if (a.scanKey > b.scanKey) {
-            return false;
-        }
-        return a.spendKey < b.spendKey;
-    }
-
-    void Encode(unsigned char code[BIP352_SPKEY_SIZE]) const;
-    void Decode(const unsigned char code[BIP352_SPKEY_SIZE]);
-}
 
 #endif // BITCOIN_PUBKEY_H

@@ -988,6 +988,23 @@ static DBErrors LoadDescriptorWalletRecords(CWallet* pwallet, DatabaseBatch& bat
         result = std::max(result, ckey_res.m_result);
         num_ckeys = ckey_res.m_records;
 
+        // Load silent payments tweaks
+        prefix = PrefixStream(DBKeys::SPTWEAK, id);
+        LoadResult tweaks_res = LoadRecords(pwallet, batch, DBKeys::SPTWEAK, prefix,
+            [&id, &spk_man] (CWallet* pwallet, DataStream& key, DataStream& value, std::string& err) {
+            uint256 spkm_id;
+            key >> spkm_id;
+            assert(spkm_id == id);
+
+            uint256 tweak;
+            value >> tweak;
+            
+            spk_man->AddTweak(tweak);
+
+            return DBErrors::LOAD_OK;
+        });
+        result = std::max(result, tweaks_res.m_result);
+
         return result;
     });
 
@@ -1335,7 +1352,7 @@ static DBErrors LoadSilentPaymentsRecords(CWallet* pwallet, DatabaseBatch& batch
         result = std::max(result, meta_res.m_result);
 
         // Load into the wallet
-        pwallet->LoadSilentPaymentsSPKM(id, sp_dest, scan_key, spend_key, spend_ckey, tweaks, creation_time, labels_used);
+        // pwallet->LoadSilentPaymentsSPKM(id, sp_dest, scan_key, spend_key, spend_ckey, tweaks, creation_time, labels_used);
 
         return result;
     });
@@ -1382,7 +1399,7 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
         if (result == DBErrors::UNKNOWN_DESCRIPTOR) return result;
 
         // Load silent payments spkms
-        result = std::max(LoadSilentPaymentsRecords(pwallet, *m_batch), result);
+        // result = std::max(LoadSilentPaymentsRecords(pwallet, *m_batch), result);
 
         // Load address book
         result = std::max(LoadAddressBookRecords(pwallet, *m_batch), result);

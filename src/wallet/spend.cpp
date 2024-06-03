@@ -27,6 +27,7 @@
 #include <wallet/spend.h>
 #include <wallet/transaction.h>
 #include <wallet/wallet.h>
+#include <wallet/walletutil.h>
 
 #include <cmath>
 
@@ -1480,8 +1481,11 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
         for (const auto& utxo : result.GetInputSet()) {
             spent_coins[utxo->outpoint] = Coin{utxo->txout, 0, tx->IsCoinBase()};
         }
-        for (SilentPaymentsSPKM* sp_spkm : wallet.GetSilentPaymentsSPKMs()) {
-            sp_spkm->IsMineSilentPayments(*tx, spent_coins);
+        auto sp_data = GetSilentPaymentsData(*tx, spent_coins);
+        if (sp_data.has_value()) {
+            for (DescriptorScriptPubKeyMan* sp_spkm : wallet.GetSilentPaymentsSPKMs()) {
+                sp_spkm->IsMine(sp_data->first, sp_data->second);
+            }
         }
     }
     return CreatedTransactionResult(tx, current_fee, change_pos, feeCalc);
