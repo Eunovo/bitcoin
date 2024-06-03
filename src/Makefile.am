@@ -464,7 +464,6 @@ libbitcoin_node_a_SOURCES = \
   rpc/txoutproof.cpp \
   script/sigcache.cpp \
   signet.cpp \
-  silentpaymentkey.cpp \
   timedata.cpp \
   torcontrol.cpp \
   txdb.cpp \
@@ -715,6 +714,7 @@ libbitcoin_common_a_SOURCES = \
   script/sign.cpp \
   script/signingprovider.cpp \
   script/solver.cpp \
+  silentpaymentkey.cpp \
   warnings.cpp \
   $(BITCOIN_CORE_H)
 
