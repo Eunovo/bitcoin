@@ -2069,7 +2069,6 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
                 return util::Error{_("Error: Keypool ran out, please call keypoolrefill first")};
             }
 
-            CTxDestination dest;
             if (!ExtractDestination(scripts_temp[0], dest)) {
                 return util::Error{_("Error: Cannot extract destination from the generated scriptpubkey")}; // shouldn't happen
             }
