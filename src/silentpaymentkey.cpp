@@ -45,6 +45,10 @@ void SpKey::Encode(unsigned char code[BIP352_SPKEY_SIZE]) const
 
 void SpKey::Decode(const unsigned char code[BIP352_SPKEY_SIZE])
 {
+  if (code[41] != 0x00) {
+    // return early leave SpKey invalid
+    return;
+  }
   memcpy(version, code, 1);
   memcpy(vchFingerprint, code+1, 4);
   maximumNumberOfLabels = ReadBE32(code+5);

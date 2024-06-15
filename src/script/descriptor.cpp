@@ -1525,12 +1525,14 @@ std::unique_ptr<PubkeyProvider> ParsePubkeyInner(uint32_t key_exp_index, const S
             error = "extended keys are not allowed";
             return nullptr;
         }
-        if (spkey.scanKey.IsValid() && spkey.spendKey.IsValid()) {
+
+        if (spkey.IsValid()) {
             out.keys.emplace(spkey.scanKey.GetPubKey().GetID(), spkey.scanKey);
             out.keys.emplace(spkey.spendKey.GetPubKey().GetID(), spkey.spendKey);
             return std::make_unique<SilentPubkeyProvider>(key_exp_index, spkey.Neuter());
         }
-        if (sppubkey.scanKey.IsValid() && sppubkey.spendKey.IsValid()) {
+
+        if (sppubkey.IsValid()) {
             out.keys.emplace(sppubkey.scanKey.GetPubKey().GetID(), sppubkey.scanKey);
             return std::make_unique<SilentPubkeyProvider>(key_exp_index, sppubkey);
         }

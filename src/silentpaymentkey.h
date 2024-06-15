@@ -55,6 +55,11 @@ struct SpPubKey {
       return a.spendKey < b.spendKey;
     }
 
+    bool IsValid()
+    {
+      return scanKey.IsValid() && spendKey.IsValid();
+    }
+
     void Encode(unsigned char code[BIP352_SPKEY_SIZE]) const;
     void Decode(const unsigned char code[BIP352_SPKEY_SIZE]);
     
@@ -83,6 +88,11 @@ struct SpKey {
     {
       std::copy(sppub.version, sppub.version + sizeof(sppub.version), version);
       std::copy(sppub.vchFingerprint, sppub.vchFingerprint + sizeof(sppub.vchFingerprint), vchFingerprint);
+    }
+
+    bool IsValid()
+    {
+      return scanKey.IsValid() && spendKey.IsValid();
     }
 
     void Encode(unsigned char code[BIP352_SPKEY_SIZE]) const;
