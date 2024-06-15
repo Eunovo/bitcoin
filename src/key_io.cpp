@@ -330,8 +330,8 @@ SpKey DecodeSpKey(const std::string& str)
 {
     SpKey key;
     std::vector<unsigned char> data;
-    if (DecodeBase58Check(str, data, BIP352_SPKEY_SIZE)) {
-        const std::vector<unsigned char>& prefix = Params().Base58Prefix(CChainParams::SP_SECRET_KEY);
+    const std::vector<unsigned char>& prefix = Params().Base58Prefix(CChainParams::SP_SECRET_KEY);
+    if (DecodeBase58Check(str, data, BIP352_SPKEY_SIZE + prefix.size())) {
         if (data.size() == BIP352_SPKEY_SIZE + prefix.size() && std::equal(prefix.begin(), prefix.end(), data.begin())) {
             key.Decode(data.data() + prefix.size());
         }
@@ -354,8 +354,8 @@ SpPubKey DecodeSpPubKey(const std::string& str)
 {
     SpPubKey key;
     std::vector<unsigned char> data;
-    if (DecodeBase58Check(str, data, BIP352_SPKEY_SIZE)) {
-        const std::vector<unsigned char>& prefix = Params().Base58Prefix(CChainParams::SP_PUBLIC_KEY);
+    const std::vector<unsigned char>& prefix = Params().Base58Prefix(CChainParams::SP_PUBLIC_KEY);
+    if (DecodeBase58Check(str, data, BIP352_SPKEY_SIZE + prefix.size())) {
         if (data.size() == BIP352_SPKEY_SIZE + prefix.size() && std::equal(prefix.begin(), prefix.end(), data.begin())) {
             key.Decode(data.data() + prefix.size());
         }
