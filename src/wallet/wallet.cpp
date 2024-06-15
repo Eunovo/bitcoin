@@ -3735,6 +3735,10 @@ DescriptorScriptPubKeyMan& CWallet::SetupDescriptorScriptPubKeyMan(WalletBatch& 
     uint256 id = spk_manager->GetID();
     AddScriptPubKeyMan(id, std::move(spk_manager));
     AddActiveScriptPubKeyManWithDb(batch, id, output_type, internal);
+    if (output_type == OutputType::SILENT_PAYMENT) {
+        // Silent Payments generate both internal and external addresses
+        AddActiveScriptPubKeyManWithDb(batch, id, output_type, !internal);
+    }
     return *out;
 }
 
@@ -3754,7 +3758,8 @@ void CWallet::SetupDescriptorScriptPubKeyMans(const CExtKey& master_key)
 
     for (bool internal : {false, true}) {
         for (OutputType t : OUTPUT_TYPES) {
-            if (t == OutputType::SILENT_PAYMENT && !IsWalletFlagSet(WALLET_FLAG_SILENT_PAYMENTS)) {
+            if (t == OutputType::SILENT_PAYMENT && (!IsWalletFlagSet(WALLET_FLAG_SILENT_PAYMENTS) || internal == true)) {
+                // Ensure that one sp descspkman is created for both internal and external uses
                 continue;
             }
             SetupDescriptorScriptPubKeyMan(batch, master_key, t, internal);
