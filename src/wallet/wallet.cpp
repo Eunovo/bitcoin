@@ -1520,8 +1520,10 @@ void CWallet::blockConnected(ChainstateRole role, const interfaces::BlockInfo& b
     // Since blocks with only one tx do not have any relevant undo data, we can avoid unnecessary disk I/O
     // by skipping this step for those blocks.
     CBlockUndo block_undo;
-    if (block.data->vtx.size() > 0) {
+    if (block.data->vtx.size() > 0 && block.undo_data == nullptr) {
         chain().findBlock(block.hash, FoundBlock().undoData(block_undo));
+    } else if (block.undo_data != nullptr) {
+        block_undo = *block.undo_data;
     }
 
     // Scan block
