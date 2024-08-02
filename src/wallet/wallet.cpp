@@ -3609,10 +3609,19 @@ ScriptPubKeyMan* CWallet::GetScriptPubKeyMan(const OutputType& type, bool intern
 {
     const std::map<OutputType, ScriptPubKeyMan*>& spk_managers = internal ? m_internal_spk_managers : m_external_spk_managers;
     std::map<OutputType, ScriptPubKeyMan*>::const_iterator it = spk_managers.find(type);
-    if (it == spk_managers.end()) {
+    if (it != spk_managers.end()) {
+        return it->second;
+    }
+    if (type != OutputType::SILENT_PAYMENT) {
         return nullptr;
     }
-    return it->second;
+    // Silent payment is a special case where the same spk_man works for both internal and external destinations
+    const std::map<OutputType, ScriptPubKeyMan*>& other_spk_managers = internal ? m_external_spk_managers : m_internal_spk_managers;
+    std::map<OutputType, ScriptPubKeyMan*>::const_iterator other_it = other_spk_managers.find(type);
+    if (other_it == other_spk_managers.end()) {
+        return nullptr;
+    }
+    return other_it->second;
 }
 
 std::set<ScriptPubKeyMan*> CWallet::GetScriptPubKeyMans(const CScript& script) const
@@ -3976,6 +3985,10 @@ std::optional<bool> CWallet::IsInternalScriptPubKeyMan(ScriptPubKeyMan* spk_man)
     LOCK(desc_spk_man->cs_desc_man);
     const auto& type = desc_spk_man->GetWalletDescriptor().descriptor->GetOutputType();
     assert(type.has_value());
+
+    if (*type == OutputType::SILENT_PAYMENT) {
+        return false;
+    }
 
     return GetScriptPubKeyMan(*type, /* internal= */ true) == desc_spk_man;
 }

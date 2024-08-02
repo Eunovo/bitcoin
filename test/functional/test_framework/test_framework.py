@@ -441,7 +441,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         if wallet_name is not False:
             n = self.nodes[node]
             if wallet_name is not None:
-                n.createwallet(wallet_name=wallet_name, descriptors=self.options.descriptors, load_on_startup=True)
+                n.createwallet(wallet_name=wallet_name, descriptors=self.options.descriptors, silent_payment=self.options.silent_payments, load_on_startup=True)
             n.importprivkey(privkey=n.get_deterministic_priv_key().key, label='coinbase', rescan=True)
 
     # Only enables wallet support when the module is available
@@ -454,7 +454,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
 
     # Public helper methods. These can be accessed by the subclass test scripts.
 
-    def add_wallet_options(self, parser, *, descriptors=True, legacy=True):
+    def add_wallet_options(self, parser, *, descriptors=True, legacy=True, silent_payment=False):
         kwargs = {}
         if descriptors + legacy == 1:
             # If only one type can be chosen, set it as default
@@ -468,6 +468,13 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         if legacy:
             group.add_argument("--legacy-wallet", action='store_const', const=False, **kwargs,
                                help="Run test using legacy wallets", dest='descriptors')
+
+        if silent_payment:
+            group.add_argument("--silent_payments", action='store_const', const=True, **kwargs,
+                               help="Run test using a silent payment wallet", dest='silent_payments')
+        else:
+            group.add_argument("--silent_payments", action='store_const', const=False, **kwargs,
+                               help="Run test using a silent payment wallet", dest='silent_payments')
 
     def add_nodes(self, num_nodes: int, extra_args=None, *, rpchost=None, binary=None, binary_cli=None, versions=None):
         """Instantiate TestNode objects.

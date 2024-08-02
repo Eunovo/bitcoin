@@ -15,7 +15,7 @@ from test_framework.wallet_util import WalletUnlock
 
 class WalletCreateDescriptorTest(BitcoinTestFramework):
     def add_options(self, parser):
-        self.add_wallet_options(parser, descriptors=True, legacy=False)
+        self.add_wallet_options(parser, descriptors=True, legacy=False, silent_payment=True)
 
     def set_test_params(self):
         self.setup_clean_chain = True
@@ -38,9 +38,12 @@ class WalletCreateDescriptorTest(BitcoinTestFramework):
         xpub = xpub_info[0]["xpub"]
         xprv = xpub_info[0]["xprv"]
         expected_descs = []
+        sp_desc = None
         for desc in def_wallet.listdescriptors()["descriptors"]:
             if desc["desc"].startswith("wpkh("):
                 expected_descs.append(desc["desc"])
+            if desc["desc"].startswith("sp("):
+                sp_desc = desc["desc"]
 
         assert_raises_rpc_error(-5, "Unable to determine which HD key to use from active descriptors. Please specify with 'hdkey'", wallet.createwalletdescriptor, "bech32")
         assert_raises_rpc_error(-5, f"Private key for {xpub} is not known", wallet.createwalletdescriptor, type="bech32", hdkey=xpub)
@@ -76,6 +79,19 @@ class WalletCreateDescriptorTest(BitcoinTestFramework):
         assert_equal(new_descs[0][0], descsum_create(f"tr({xprv}/86h/1h/0h/1/*)"))
         assert_equal(new_descs[0][1], True)
         assert_equal(new_descs[0][2], True)
+
+        old_descs = curr_descs
+        wallet.createwalletdescriptor(type="silent-payment", internal=False)
+        curr_descs = set([(d["desc"], d["active"], d["internal"]) for d in wallet.listdescriptors(private=True)["descriptors"]])
+        new_descs = list(curr_descs - old_descs)
+        assert_equal(len(new_descs), 1)
+        assert_equal(len(wallet.gethdkeys()), 1)
+        assert_equal([d["desc"] for d in wallet.listdescriptors()["descriptors"] if d["desc"].startswith("sp(")][0], sp_desc)
+        assert_equal(new_descs[0][1], True)
+        assert_equal(new_descs[0][2], False)
+
+        assert_raises_rpc_error(-4, "Descriptor already exists", wallet.createwalletdescriptor, type="silent-payment", internal=False)
+        assert_raises_rpc_error(-4, "Descriptor already exists", wallet.createwalletdescriptor, type="silent-payment", internal=True) # SP descs are the same for both internal and external
 
     def test_imported_other_keys(self):
         self.log.info("Test createwalletdescriptor with multiple keys in active descriptors")

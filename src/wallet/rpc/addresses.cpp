@@ -7,8 +7,10 @@
 #include <core_io.h>
 #include <key_io.h>
 #include <rpc/util.h>
+#include <script/descriptor.h>
 #include <script/script.h>
 #include <script/solver.h>
+#include <silentpaymentkey.h>
 #include <util/bip32.h>
 #include <util/translation.h>
 #include <wallet/receive.h>
@@ -16,6 +18,7 @@
 #include <wallet/wallet.h>
 
 #include <univalue.h>
+#include <variant>
 
 namespace wallet {
 RPCHelpMan getnewaddress()
@@ -590,6 +593,27 @@ RPCHelpMan getaddressinfo()
     }
 
     UniValue ret(UniValue::VOBJ);
+
+    auto sp_dest = std::get_if<V0SilentPaymentDestination>(&dest);
+    if (sp_dest) {
+        for (const auto& sp_spk_man : pwallet->GetSilentPaymentsSPKMs()) {
+            LOCK(sp_spk_man->cs_desc_man);
+            auto wallet_desc = sp_spk_man->GetWalletDescriptor();
+            auto sppub = GetSpPubKeyFrom(wallet_desc.descriptor);
+            CHECK_NONFATAL(sppub.has_value());
+            auto scan_pubkey = sppub->scanKey.GetPubKey();
+            if (scan_pubkey != sp_dest->m_scan_pubkey) continue;
+
+            SpPubKey dest_sppub(sppub->scanKey, sp_dest->m_spend_pubkey);
+            std::string sppub_str = EncodeSpPubKey(dest_sppub);
+            std::string desc_str = "sp("+ sppub_str +")";
+            FlatSigningProvider keys;
+            std::string error;
+            std::unique_ptr<Descriptor> desc = Parse(desc_str, keys, error, false);
+            ret.pushKV("desc", desc->ToString());
+            ret.pushKV("parent_desc", wallet_desc.descriptor->ToString());
+        }
+    }
 
     std::string currentAddress = EncodeDestination(dest);
     ret.pushKV("address", currentAddress);
