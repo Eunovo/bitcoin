@@ -110,6 +110,31 @@ class SilentPaymentsReceivingTest(BitcoinTestFramework):
 
         assert_equal(wallet.getbalance(), 0)
 
+    def test_import_rescan(self):
+        self.log.info("Check import rescan works for silent payments")
+
+        self.nodes[0].createwallet(wallet_name="alice", silent_payment=True)
+        self.nodes[0].createwallet(wallet_name="alice_wo", disable_private_keys=True, silent_payment=True)
+        alice = self.nodes[0].get_wallet_rpc("alice")
+        alice_wo = self.nodes[0].get_wallet_rpc("alice_wo")
+
+        address = alice.getnewaddress(address_type="silent-payment")
+        self.def_wallet.sendtoaddress(address, 10)
+        blockhash = self.generate(self.nodes[0], 1)[0]
+        timestamp = self.nodes[0].getblockheader(blockhash)["time"]
+        assert_approx(alice.getbalance(), 10, 0.0001)
+        assert_equal(alice_wo.getbalance(), 0)
+
+        alice_sp_desc = [d["desc"] for d in alice.listdescriptors()["descriptors"] if d["desc"].startswith("sp(")][0]
+        alice_wo.importdescriptors([{
+            "desc": alice_sp_desc,
+            "active": True,
+            "next_index": 0,
+            "timestamp": timestamp
+        }])
+
+        assert_approx(alice_wo.getbalance(), 10, 0.0001)
+
     def run_test(self):
         self.def_wallet = self.nodes[0].get_wallet_rpc(self.default_wallet_name)
         self.generate(self.nodes[0], 101)
@@ -118,6 +143,7 @@ class SilentPaymentsReceivingTest(BitcoinTestFramework):
         self.test_encrypt_and_decrypt()
         self.test_encrypting_unencrypted()
         self.test_basic()
+        self.test_import_rescan()
 
 
 if __name__ == '__main__':
