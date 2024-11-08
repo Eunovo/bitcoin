@@ -5,15 +5,34 @@
 #ifndef BITCOIN_CHECKQUEUE_H
 #define BITCOIN_CHECKQUEUE_H
 
+#include <batchverify.h>
 #include <logging.h>
+#include <script/script_error.h>
 #include <sync.h>
 #include <tinyformat.h>
 #include <util/threadnames.h>
 
 #include <algorithm>
+#include <concepts>
 #include <iterator>
 #include <optional>
 #include <vector>
+
+using ScriptFailureResult = std::pair<ScriptError, std::string>;
+
+template <typename T, typename R, typename Obj>
+concept HasOperatorWithObj = requires(T t, Obj* obj) {
+    {
+        t(obj)
+    } -> std::same_as<std::optional<R>>;
+};
+
+template <typename T, typename R>
+concept HasOperatorNoArgs = requires(T t) {
+    {
+        t()
+    } -> std::same_as<std::optional<R>>;
+};
 
 /**
  * Queue for verifications that have to be performed.
@@ -30,6 +49,7 @@
   *
   */
 template <typename T, typename R = std::remove_cvref_t<decltype(std::declval<T>()().value())>>
+    requires HasOperatorWithObj<T, R, BatchSchnorrVerifier> || HasOperatorNoArgs<T, R>
 class CCheckQueue
 {
 private:
@@ -72,6 +92,7 @@ private:
     std::optional<R> Loop(bool fMaster) EXCLUSIVE_LOCKS_REQUIRED(!m_mutex)
     {
         std::condition_variable& cond = fMaster ? m_master_cv : m_worker_cv;
+        BatchSchnorrVerifier batch;
         std::vector<T> vChecks;
         vChecks.reserve(nBatchSize);
         unsigned int nNow = 0;
@@ -128,8 +149,17 @@ private:
             // execute work
             if (do_work) {
                 for (T& check : vChecks) {
-                    local_result = check();
+                    if constexpr (HasOperatorWithObj<T, R, BatchSchnorrVerifier>) {
+                        local_result = check(&batch);
+                    } else {
+                        local_result = check();
+                    }
                     if (local_result.has_value()) break;
+                }
+                if constexpr (std::is_same_v<R, ScriptFailureResult>) {
+                    if (!local_result.has_value() && !batch.Verify()) {
+                        local_result = ScriptFailureResult(SCRIPT_ERR_BATCH_VALIDATION_FAILED, "Schnorr batch validation failed");
+                    }
                 }
             }
             vChecks.clear();
