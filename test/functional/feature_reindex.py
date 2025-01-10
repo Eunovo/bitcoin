@@ -178,6 +178,50 @@ class ReindexTest(BitcoinTestFramework):
         assert_equal(node.getblock(node.getbestblockhash())['height'], height)
         self.log.info("Success")
 
+    # Check that invalid block saved to disk is not loaded
+    def invalid_block(self):
+        self.log.info("Testing invalid block saved to disk is not loaded with -reindex -assumevalid")
+        node = self.nodes[0]
+        self.generate(node, 1)
+        coinbase_to_spend = node.getblock(node.getbestblockhash())['tx'][0]
+        # Generate COINBASE_MATURITY blocks to make the coinbase spendable
+        self.generate(node, COINBASE_MATURITY)
+        tip = int(node.getbestblockhash(), 16)
+        block_info = node.getblock(node.getbestblockhash())
+        block_time = block_info['time'] + 1
+        height = block_info['height'] + 1
+        expected_height = block_info['height'] # The expected chain height at the end of the test
+        blocks = []
+
+        # Create a block with an invalid signature
+        tx = CTransaction()
+        tx.vin.append(CTxIn(COutPoint(int(coinbase_to_spend, 16), 0), scriptSig=b""))
+        tx.vout.append(CTxOut(49 * 10000, CScript([OP_TRUE])))
+        tx.calc_sha256()
+        invalid_block = create_block(tip, create_coinbase(height), block_time, txlist=[tx])
+        invalid_block.solve()
+        tip = invalid_block.sha256
+        blocks.append(invalid_block)
+
+        # Send blocks to node0
+        p2p0 = node.add_p2p_connection(BaseNode())
+        p2p0.send_header_for_blocks(blocks)
+        p2p0.send_header_for_blocks(blocks)
+        for block in blocks:
+            p2p0.send_message(msg_block(block))
+
+        # node0 should not connect invalid block
+        assert_equal(node.getblock(node.getbestblockhash())['height'], expected_height)
+
+        # Restart node0 with -reindex and -assumevalid
+        node.stop_node()
+        self.start_node(0, extra_args=["-reindex", "-assumevalid=" + invalid_block.hash])
+
+        # node0 should not load invalid block but it does so it fails here
+        assert_equal(node.getblock(node.getbestblockhash())['height'], expected_height)
+        self.log.info("Success")
+
+
     def run_test(self):
         self.reindex(False)
         self.reindex(True)
@@ -187,6 +231,7 @@ class ReindexTest(BitcoinTestFramework):
         self.out_of_order()
         self.continue_reindex_after_shutdown()
         self.assume_valid()
+        self.invalid_block()
 
 
 if __name__ == '__main__':

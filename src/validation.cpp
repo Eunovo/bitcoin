@@ -2497,9 +2497,12 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         //  effectively caching the result of part of the verification.
         BlockMap::const_iterator it{m_blockman.m_block_index.find(m_chainman.AssumedValidBlock())};
         if (it != m_blockman.m_block_index.end()) {
-            if (it->second.GetAncestor(pindex->nHeight) == pindex &&
+            if (m_blockman.LoadingBlocks()) {
+                // Always skip script checks during reindex
+                fScriptChecks = false;
+            } else if (it->second.GetAncestor(pindex->nHeight) == pindex &&
                 m_chainman.m_best_header->GetAncestor(pindex->nHeight) == pindex &&
-                (m_chainman.m_best_header->nChainWork >= m_chainman.MinimumChainWork() || m_chainman.m_blockman.LoadingBlocks())) {
+                m_chainman.m_best_header->nChainWork >= m_chainman.MinimumChainWork()) {
                 // This block is a member of the assumed verified chain and an ancestor of the best header.
                 // Script verification is skipped when connecting blocks under the
                 // assumevalid block. Assuming the assumevalid block is valid this
@@ -2513,7 +2516,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
                 //  that are hardly doing any signature verification at all in testing without having to
                 //  artificially set the default assumed verified block further back.
                 // The test against the minimum chain work prevents the skipping when denied access to any chain at
-                //  least as good as the expected chain. The minimum chain work test is not applied during reindexing.
+                //  least as good as the expected chain.
                 fScriptChecks = (GetBlockProofEquivalentTime(*m_chainman.m_best_header, *pindex, *m_chainman.m_best_header, params.GetConsensus()) <= 60 * 60 * 24 * 7 * 2);
             }
         }
