@@ -71,6 +71,7 @@ using node::RegenerateCommitments;
 using node::VerifyLoadedChainstate;
 
 const TranslateFn G_TRANSLATION_FUN{nullptr};
+constexpr int TEST_DEFAULT_SCRIPT_THREADS{2};
 
 constexpr inline auto TEST_DIR_PATH_ELEMENT{"test_common bitcoin"}; // Includes a space to catch possible path escape issues.
 /** Random context to get unique temp data dirs. Separate from m_rng, which can be seeded from a const env var */
@@ -96,6 +97,8 @@ void SetupCommonTestArgs(ArgsManager& argsman)
 {
     argsman.AddArg("-testdatadir", strprintf("Custom data directory (default: %s<random_string>)", fs::PathToString(fs::temp_directory_path() / TEST_DIR_PATH_ELEMENT / "")),
                    ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
+    argsman.AddArg("-par=<n>", strprintf("Set the number of script verification threads (0 = auto, <0 = leave that many cores free, default: %d)", TEST_DEFAULT_SCRIPT_THREADS),
+        ArgsManager::ALLOW_ANY, OptionsCategory::DEBUG_TEST);
 }
 
 /** Test setup failure */
@@ -235,13 +238,19 @@ ChainTestingSetup::ChainTestingSetup(const ChainType chainType, TestOpts opts)
 
     m_make_chainman = [this, &chainparams, opts] {
         Assert(!m_node.chainman);
+        auto script_threads{m_node.args->GetIntArg("-par", TEST_DEFAULT_SCRIPT_THREADS)};
+        if (script_threads <= 0) {
+            // -par=0 means autodetect (number of cores - 1 script threads)
+            // -par=-n means "leave n cores free" (number of cores - n - 1 script threads)
+            script_threads += GetNumCores();
+        }
         ChainstateManager::Options chainman_opts{
             .chainparams = chainparams,
             .datadir = m_args.GetDataDirNet(),
             .check_block_index = 1,
             .notifications = *m_node.notifications,
             .signals = m_node.validation_signals.get(),
-            .worker_threads_num = 2,
+            .worker_threads_num = static_cast<int>(script_threads - 1), // Remove 1 to account for main thread 
         };
         if (opts.min_validation_cache) {
             chainman_opts.script_execution_cache_bytes = 0;
