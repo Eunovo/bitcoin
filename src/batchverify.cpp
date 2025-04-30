@@ -52,11 +52,19 @@ bool BatchSchnorrVerifier::Add(const std::span<const unsigned char> sig, const X
 
     secp256k1_xonly_pubkey pubkey_parsed;
     if (!secp256k1_xonly_pubkey_parse(secp256k1_context_static, &pubkey_parsed, pubkey.data())) return false;
-    return secp256k1_batch_add_schnorrsig(secp256k1_context_static, m_batch->get(), sig.data(), sighash.begin(), 32, &pubkey_parsed);
+    m_needs_verify = secp256k1_batch_add_schnorrsig(secp256k1_context_static, m_batch->get(), sig.data(), sighash.begin(), 32, &pubkey_parsed);
+    return m_needs_verify;
 }
 
 bool BatchSchnorrVerifier::Verify()
 {
     LOCK(m_batch_mutex);
+    m_needs_verify = false;
     return secp256k1_batch_verify(secp256k1_context_static, m_batch->get());
+}
+
+bool BatchSchnorrVerifier::NeedsVerify()
+{
+    LOCK(m_batch_mutex);
+    return m_needs_verify;
 }

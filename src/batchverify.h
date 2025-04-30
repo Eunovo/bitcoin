@@ -13,6 +13,7 @@ class BatchSchnorrVerifier
 {
 private:
     Batch* m_batch GUARDED_BY(m_batch_mutex);
+    bool m_needs_verify GUARDED_BY(m_batch_mutex){false};
     mutable Mutex m_batch_mutex;
 
 public:
@@ -21,6 +22,7 @@ public:
 
     bool Add(const std::span<const unsigned char> sig, const XOnlyPubKey& pubkey, const uint256& sighash) EXCLUSIVE_LOCKS_REQUIRED(!m_batch_mutex);
     bool Verify() EXCLUSIVE_LOCKS_REQUIRED(!m_batch_mutex);
+    bool NeedsVerify() EXCLUSIVE_LOCKS_REQUIRED(!m_batch_mutex);
 };
 
 #endif // BITCOIN_BATCHVERIFY_H

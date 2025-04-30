@@ -116,7 +116,7 @@ private:
                     nTotal++;
                 }
                 // logically, the do loop starts here
-                while (queue.empty() && !m_request_stop) {
+                while (queue.empty() && !batch.NeedsVerify() && !m_request_stop) {
                     if (fMaster && nTodo == 0) {
                         nTotal--;
                         std::optional<R> to_return = std::move(m_result);
@@ -134,15 +134,19 @@ private:
                     return std::nullopt;
                 }
 
-                // Decide how many work units to process now.
-                // * Do not try to do everything at once, but aim for increasingly smaller batches so
-                //   all workers finish approximately simultaneously.
-                // * Try to account for idle jobs which will instantly start helping.
-                // * Don't do batches smaller than 1 (duh), or larger than nBatchSize.
-                nNow = std::max(1U, std::min(nBatchSize, (unsigned int)queue.size() / (nTotal + nIdle + 1)));
-                auto start_it = queue.end() - nNow;
-                vChecks.assign(std::make_move_iterator(start_it), std::make_move_iterator(queue.end()));
-                queue.erase(start_it, queue.end());
+                if (!queue.empty()) {
+                    // Decide how many work units to process now.
+                    // * Do not try to do everything at once, but aim for increasingly smaller batches so
+                    //   all workers finish approximately simultaneously.
+                    // * Try to account for idle jobs which will instantly start helping.
+                    // * Don't do batches smaller than 1 (duh), or larger than nBatchSize.
+                    nNow = std::max(1U, std::min(nBatchSize, (unsigned int)queue.size() / (nTotal + nIdle + 1)));
+                    auto start_it = queue.end() - nNow;
+                    vChecks.assign(std::make_move_iterator(start_it), std::make_move_iterator(queue.end()));
+                    queue.erase(start_it, queue.end());
+                } else {
+                    nNow = 0;
+                }
                 // Check whether we need to do work at all
                 do_work = !m_result.has_value();
             }
@@ -157,8 +161,11 @@ private:
                     if (local_result.has_value()) break;
                 }
                 if constexpr (std::is_same_v<R, ScriptFailureResult>) {
-                    if (!local_result.has_value() && !batch.Verify()) {
-                        local_result = ScriptFailureResult(SCRIPT_ERR_BATCH_VALIDATION_FAILED, "Schnorr batch validation failed");
+                    if (vChecks.empty()) {
+                        // No checks were assigned, queue must have been empty, verify batch now
+                        if (!local_result.has_value() && !batch.Verify()) {
+                            local_result = ScriptFailureResult(SCRIPT_ERR_BATCH_VALIDATION_FAILED, "Schnorr batch validation failed");
+                        }
                     }
                 }
             }
