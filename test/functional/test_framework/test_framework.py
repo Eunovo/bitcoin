@@ -457,6 +457,11 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
 
     def setup_nodes(self):
         """Override this method to customize test node setup"""
+        if self.extra_args is None:
+            self.extra_args = [['-addresstype=silent-payments']] * self.num_nodes
+        else:
+            for args in self.extra_args:
+                args.append('-addresstype=silent-payments')
         self.add_nodes(self.num_nodes, self.extra_args)
         self.start_nodes()
         if self.uses_wallet:
@@ -484,7 +489,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         if wallet_name is not False:
             n = self.nodes[node]
             if wallet_name is not None:
-                n.createwallet(wallet_name=wallet_name, load_on_startup=True)
+                n.createwallet(wallet_name=wallet_name, load_on_startup=True, silent_payments=True)
             n.importprivkey(privkey=n.get_deterministic_priv_key().key, label='coinbase', rescan=True)
 
     def run_test(self):
