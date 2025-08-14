@@ -178,10 +178,9 @@ class SilentPaymentsTransactTest(BitcoinTestFramework):
         #### working tests ####
         self.test_default_wallet_descriptor_format()
         self.test_spend_restored_wallet_to_sp_wallet()
-
-        #### broken tests ####
-        # import private keys is broken
         self.test_import_sp_descriptor_with_private_keys()
+
+        #### broken test ####
         # send works without the following in spend.cpp
             # if (wallet.IsMine(*tx, spent_coins))
             #   wallet.WalletLogPrintf("Detected Silent Payments self-transfer: %s", tx->GetHash().ToString());
