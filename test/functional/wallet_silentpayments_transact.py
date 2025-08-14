@@ -14,6 +14,7 @@ import re
 class SilentPaymentsTransactTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 3
+        self.setup_clean_chain = True
         self.extra_args = [[], ["-txindex=1"], []]
 
     def skip_test_if_missing_module(self):
@@ -63,46 +64,31 @@ class SilentPaymentsTransactTest(BitcoinTestFramework):
         )
         node = self.nodes[0]
 
-        node.createwallet(wallet_name='desc_import', disable_private_keys=False, silent_payments=True, blank=True)
-        imp_rpc = node.get_wallet_rpc('desc_import')
-        import_response = imp_rpc.importdescriptors([
-            {
-                "desc": descsum_create(
-                    "sp([6110e03f/352h/1h/0h/1h/0]cMeTKtyqEmjYQdYwGwf4xLX9HgyU1u6PP4cbXTD53v7CuCpN41zE,[6110e03f/352h/1h/0h/0h/0]cMu3QpDixtR5ABgrNXAzhmpxhPiYokpHvdYs3RpTBgGcWB6LfTXv)"
-                ),
-                "timestamp": "now",
-                "internal": True,
-                "active": True,
-                "keypool": True,
-            },
-            {
-                "desc": descsum_create(
-                    "tr(tprv8ZgxMBicQKsPe1VvfWKAtwLpPAeNAd8CwkGer8Vz2dgjaFkdBEy3PfNJ5YhbJLBaC8RiSJv75jNttFZN2ARs4WhY9Ugc4hHV38xceHYfLcU/86h/1h/0h/0/*)"
-                ),
-                "timestamp": "now",
-                "internal": False,
-                "active": True,
-                "keypool": True,
-            },
-            {
-                "desc": descsum_create(
-                    "tr(tprv8ZgxMBicQKsPe1VvfWKAtwLpPAeNAd8CwkGer8Vz2dgjaFkdBEy3PfNJ5YhbJLBaC8RiSJv75jNttFZN2ARs4WhY9Ugc4hHV38xceHYfLcU/86h/1h/0h/1/*)"
-                ),    
-                "timestamp": "now",
-                "internal": True,
-                "active": True,
-                "keypool": True,
-            }
-        ])
-
-        assert len(import_response) > 2
-        for response in import_response:
-            assert_equal(response["success"], True)
-            for warning in response["warnings"]:
-                assert "Not all private keys provided" not in warning
+        # create wallet with private keys and silent payments support
+        node.createwallet(wallet_name="wallet_source", disable_private_keys=False, silent_payments=True)
+        wallet_source = node.get_wallet_rpc("wallet_source")
         
-        # imp_addr = imp_rpc.getnewaddress(address_type="bech32m")
-        imp_addr = imp_rpc.getnewaddress(address_type="silent-payments")
+        # fetch sp descriptor with private keys
+        wallet_sp_desc = [d["desc"] for d in wallet_source.listdescriptors(True)["descriptors"] if d["desc"].startswith("sp(")][0]
+        self.log.debug(f"sp descriptor to import {wallet_sp_desc}")
+        # create blank wallet to import descriptor into
+        node.createwallet(wallet_name='wallet_import', disable_private_keys=False, silent_payments=True, blank=True)
+        wallet_import = node.get_wallet_rpc('wallet_import')
+        responses = wallet_import.importdescriptors([{
+            "desc": wallet_sp_desc,
+            "active": True,
+            "timestamp": "now"
+        }])
+        
+        # verify import status
+        for response in responses:
+            assert_equal(response["success"], True)
+            if "warnings" in response:
+                for warning in response["warnings"]:
+                    assert "Not all private keys provided" not in warning
+        
+        imp_addr = wallet_import.getnewaddress(address_type="silent-payments")
+        assert imp_addr
         self.log.info(f"SP Address from imported descriptor {imp_addr}")
 
 
