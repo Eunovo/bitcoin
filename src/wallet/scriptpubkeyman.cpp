@@ -1796,6 +1796,7 @@ std::unique_ptr<FlatSigningProvider> SilentPaymentDescriptorScriptPubKeyMan::Get
     for (auto& pubkey : taproot_dest->GetCPubKeys())
     {
         out_keys->pubkeys.emplace(pubkey.GetID(), pubkey);
+        out_keys->sp_tweaks.emplace(pubkey.GetID(), tweak_it->second);
     }
 
     if (include_private) {
@@ -1808,14 +1809,10 @@ std::unique_ptr<FlatSigningProvider> SilentPaymentDescriptorScriptPubKeyMan::Get
             return out_keys;
         }
 
-        CKey tweaked_spend_key = spend_key_it->second;
-        const uint256& tweak = tweak_it->second;
-
-        if (!tweaked_spend_key.IsValid() || !tweaked_spend_key.TweakAdd(tweak.data())) {
-            return out_keys;
+        for (auto& keyid : taproot_dest->GetKeyIDs())
+        {
+            out_keys->keys.emplace(keyid, spend_key_it->second);
         }
-        out_keys->keys.emplace(tweaked_spend_key.GetPubKey().GetID(), tweaked_spend_key);
-        assert(out_keys->pubkeys.count(tweaked_spend_key.GetPubKey().GetID()) > 0);
     }
 
     return out_keys;

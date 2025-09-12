@@ -57,6 +57,10 @@ std::vector<CPubKey> HidingSigningProvider::GetMuSig2ParticipantPubkeys(const CP
     if (m_hide_origin) return {};
     return m_provider->GetMuSig2ParticipantPubkeys(pubkey);
 }
+bool HidingSigningProvider::GetSilentPaymentsTweak(const CKeyID& keyid, uint256& tweak) const
+{
+    return m_provider->GetSilentPaymentsTweak(keyid, tweak);
+}
 
 bool FlatSigningProvider::GetCScript(const CScriptID& scriptid, CScript& script) const { return LookupHelper(scripts, scriptid, script); }
 bool FlatSigningProvider::GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const { return LookupHelper(pubkeys, keyid, pubkey); }
@@ -94,6 +98,10 @@ std::vector<CPubKey> FlatSigningProvider::GetMuSig2ParticipantPubkeys(const CPub
     return participant_pubkeys;
 }
 
+bool FlatSigningProvider::GetSilentPaymentsTweak(const CKeyID& keyid, uint256& tweak) const {
+    return LookupHelper(sp_tweaks, keyid, tweak);
+}
+
 FlatSigningProvider& FlatSigningProvider::Merge(FlatSigningProvider&& b)
 {
     scripts.merge(b.scripts);
@@ -101,6 +109,7 @@ FlatSigningProvider& FlatSigningProvider::Merge(FlatSigningProvider&& b)
     keys.merge(b.keys);
     origins.merge(b.origins);
     tr_trees.merge(b.tr_trees);
+    sp_tweaks.merge(b.sp_tweaks);
     aggregate_pubkeys.merge(b.aggregate_pubkeys);
     return *this;
 }

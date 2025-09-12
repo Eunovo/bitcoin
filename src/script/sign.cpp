@@ -62,9 +62,16 @@ bool MutableTransactionSignatureCreator::CreateSig(const SigningProvider& provid
 bool MutableTransactionSignatureCreator::CreateSchnorrSig(const SigningProvider& provider, std::vector<unsigned char>& sig, const XOnlyPubKey& pubkey, const uint256* leaf_hash, const uint256* merkle_root, SigVersion sigversion) const
 {
     assert(sigversion == SigVersion::TAPROOT || sigversion == SigVersion::TAPSCRIPT);
-
+    uint256 tweak;
     CKey key;
-    if (!provider.GetKeyByXOnly(pubkey, key)) return false;
+    bool is_silent_payment{false};
+
+    if (provider.GetSilentPaymentsTweakByXOnly(pubkey, tweak)) {
+        if (!provider.GetKeyByXOnly(pubkey, key)) return false;
+        is_silent_payment = true;
+    } else {
+        if (!provider.GetKeyByXOnly(pubkey, key)) return false;
+    }
 
     // BIP341/BIP342 signing needs lots of precomputed transaction data. While some
     // (non-SIGHASH_DEFAULT) sighash modes exist that can work with just some subset
@@ -85,7 +92,11 @@ bool MutableTransactionSignatureCreator::CreateSchnorrSig(const SigningProvider&
     if (!SignatureHashSchnorr(hash, execdata, m_txto, nIn, nHashType, sigversion, *m_txdata, MissingDataBehavior::FAIL)) return false;
     sig.resize(64);
     // Use uint256{} as aux_rnd for now.
-    if (!key.SignSchnorr(hash, sig, merkle_root, {})) return false;
+    if (is_silent_payment) {
+        if (!key.SignSilentPayments(hash, sig, tweak, {})) return false;
+    } else {
+        if (!key.SignSchnorr(hash, sig, merkle_root, {})) return false;
+    }
     if (nHashType) sig.push_back(nHashType);
     return true;
 }

@@ -1519,12 +1519,15 @@ static util::Result<CreatedTransactionResult> CreateTransactionInternal(
         return util::Error{Untranslated(STR_INTERNAL_BUG("Fee needed > fee paid"))};
     }
 
+    LogPrintf("before signTransaction\n");
     if (sign && !wallet.SignTransaction(txNew)) {
+        LogPrintf("SignTransaction failed\n");
         return util::Error{_("Signing transaction failed")};
     }
-
+    LogPrintf("vin[0].scriptWitness: %x\n", txNew.vin[0].scriptWitness.stack.size());
     // Return the constructed transaction data.
     CTransactionRef tx = MakeTransactionRef(std::move(txNew));
+    LogPrintf("vin[0].scriptWitness: %x\n", tx->vin[0].scriptWitness.stack.size());
 
     // Limit size
     if ((sign && GetTransactionWeight(*tx) > MAX_STANDARD_TX_WEIGHT) ||

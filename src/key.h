@@ -128,8 +128,6 @@ public:
     //! Generate a new private key using a cryptographic PRNG.
     void MakeNewKey(bool fCompressed);
 
-    bool TweakAdd(const unsigned char* tweak32);
-
     /**
      * Convert the private key to a CPrivKey (serialized OpenSSL private key data).
      * This is expensive.
@@ -173,6 +171,7 @@ public:
      *                              Merkle root of the script tree).
      */
     bool SignSchnorr(const uint256& hash, std::span<unsigned char> sig, const uint256* merkle_root, const uint256& aux) const;
+    bool SignSilentPayments(const uint256& hash, std::span<unsigned char> sig, const uint256& output_tweak, const uint256& aux) const;
 
     //! Derive BIP32 child key.
     [[nodiscard]] bool Derive(CKey& keyChild, ChainCode &ccChild, unsigned int nChild, const ChainCode& cc) const;
@@ -222,6 +221,8 @@ public:
      *                               Merkle root of the script tree).
      */
     KeyPair ComputeKeyPair(const uint256* merkle_root) const;
+    /** Compute a BIP352 keypair from a spend secret key and output tweak */
+    KeyPair ComputeBIP352KeyPair(const uint256& output_tweak) const;
 };
 
 CKey GenerateRandomKey(bool compressed = true) noexcept;
@@ -288,6 +289,7 @@ public:
     KeyPair(const KeyPair& other) { *this = other; }
 
     friend KeyPair CKey::ComputeKeyPair(const uint256* merkle_root) const;
+    friend KeyPair CKey::ComputeBIP352KeyPair(const uint256& output_tweak) const;
     [[nodiscard]] bool SignSchnorr(const uint256& hash, std::span<unsigned char> sig, const uint256& aux) const;
 
     /**
@@ -308,6 +310,7 @@ public:
 
 private:
     KeyPair(const CKey& key, const uint256* merkle_root);
+    KeyPair(const CKey& key, const uint256& output_tweak);
 
     using KeyType = std::array<unsigned char, 96>;
     secure_unique_ptr<KeyType> m_keypair;

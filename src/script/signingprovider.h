@@ -162,6 +162,7 @@ public:
     virtual bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const { return false; }
     virtual bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const { return false; }
     virtual std::vector<CPubKey> GetMuSig2ParticipantPubkeys(const CPubKey& pubkey) const { return {}; }
+    virtual bool GetSilentPaymentsTweak(const CKeyID& keyid, uint256& tweak) const { return false; }
 
     bool GetKeyByXOnly(const XOnlyPubKey& pubkey, CKey& key) const
     {
@@ -186,6 +187,14 @@ public:
         }
         return false;
     }
+
+    bool GetSilentPaymentsTweakByXOnly(const XOnlyPubKey& output_key, uint256& tweak) const
+    {
+        for (const auto& id : output_key.GetKeyIDs()) {
+            if (GetSilentPaymentsTweak(id, tweak)) return true;
+        }
+        return false;
+    }
 };
 
 extern const SigningProvider& DUMMY_SIGNING_PROVIDER;
@@ -206,6 +215,7 @@ public:
     bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const override;
     bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const override;
     std::vector<CPubKey> GetMuSig2ParticipantPubkeys(const CPubKey& pubkey) const override;
+    bool GetSilentPaymentsTweak(const CKeyID& keyid, uint256& tweak) const override;
 };
 
 struct FlatSigningProvider final : public SigningProvider
@@ -216,6 +226,7 @@ struct FlatSigningProvider final : public SigningProvider
     std::map<CKeyID, CKey> keys;
     std::map<XOnlyPubKey, TaprootBuilder> tr_trees; /** Map from output key to Taproot tree (which can then make the TaprootSpendData */
     std::map<CPubKey, std::vector<CPubKey>> aggregate_pubkeys; /** MuSig2 aggregate pubkeys */
+    std::map<CKeyID, uint256> sp_tweaks; /** Map from key id to silent payments tweak */
 
     bool GetCScript(const CScriptID& scriptid, CScript& script) const override;
     bool GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const override;
@@ -225,6 +236,7 @@ struct FlatSigningProvider final : public SigningProvider
     bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const override;
     bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const override;
     std::vector<CPubKey> GetMuSig2ParticipantPubkeys(const CPubKey& pubkey) const override;
+    bool GetSilentPaymentsTweak(const CKeyID& keyid, uint256& tweak) const override;
 
     FlatSigningProvider& Merge(FlatSigningProvider&& b) LIFETIMEBOUND;
 };

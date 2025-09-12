@@ -194,6 +194,7 @@ UniValue SendMoney(CWallet& wallet, const CCoinControl &coin_control, std::vecto
     if (!res) {
         throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, util::ErrorString(res).original);
     }
+    LogPrintf("SendMoney(): vin[0].scriptWitness: %x\n", res->tx->vin[0].scriptWitness.stack.size());
     const CTransactionRef& tx = res->tx;
     wallet.CommitTransaction(tx, std::move(map_value), /*orderForm=*/{});
     if (verbose) {

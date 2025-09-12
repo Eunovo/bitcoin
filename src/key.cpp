@@ -166,13 +166,6 @@ void CKey::MakeNewKey(bool fCompressedIn) {
     fCompressed = fCompressedIn;
 }
 
-bool CKey::TweakAdd(const unsigned char* tweak32)
-{
-    assert(keydata);
-    // Modify the current CKey's data directly.
-    return secp256k1_ec_seckey_tweak_add(secp256k1_context_sign, keydata->data(), tweak32);
-}
-
 CPrivKey CKey::GetPrivKey() const {
     assert(keydata);
     CPrivKey seckey;
@@ -282,6 +275,12 @@ bool CKey::SignSchnorr(const uint256& hash, std::span<unsigned char> sig, const 
     return kp.SignSchnorr(hash, sig, aux);
 }
 
+bool CKey::SignSilentPayments(const uint256& hash, std::span<unsigned char> sig, const uint256& output_tweak, const uint256& aux) const
+{
+    KeyPair kp = ComputeBIP352KeyPair(output_tweak);
+    return kp.SignSchnorr(hash, sig, aux);
+}
+
 bool CKey::Load(const CPrivKey &seckey, const CPubKey &vchPubKey, bool fSkipCheck=false) {
     MakeKeyData();
     if (!ec_seckey_import_der(secp256k1_context_sign, (unsigned char*)begin(), seckey.data(), seckey.size())) {
@@ -356,6 +355,12 @@ KeyPair CKey::ComputeKeyPair(const uint256* merkle_root) const
     return KeyPair(*this, merkle_root);
 }
 
+KeyPair CKey::ComputeBIP352KeyPair(const uint256& output_tweak) const
+{
+    assert(keydata);
+    return KeyPair(*this, output_tweak);
+}
+
 CKey GenerateRandomKey(bool compressed) noexcept
 {
     CKey key;
@@ -426,6 +431,18 @@ KeyPair::KeyPair(const CKey& key, const uint256* merkle_root)
         assert(secp256k1_xonly_pubkey_serialize(secp256k1_context_sign, pubkey_bytes, &pubkey));
         uint256 tweak = XOnlyPubKey(pubkey_bytes).ComputeTapTweakHash(merkle_root->IsNull() ? nullptr : merkle_root);
         success = secp256k1_keypair_xonly_tweak_add(secp256k1_context_static, keypair, tweak.data());
+    }
+    if (!success) ClearKeyPairData();
+}
+
+KeyPair::KeyPair(const CKey& key, const uint256& output_tweak)
+{
+    static_assert(std::tuple_size<KeyType>() == sizeof(secp256k1_keypair));
+    MakeKeyPairData();
+    auto keypair = reinterpret_cast<secp256k1_keypair*>(m_keypair->data());
+    bool success = secp256k1_keypair_create(secp256k1_context_sign, keypair, UCharCast(key.data()));
+    if (success) {
+        success = secp256k1_keypair_xonly_tweak_add(secp256k1_context_static, keypair, output_tweak.data());
     }
     if (!success) ClearKeyPairData();
 }
