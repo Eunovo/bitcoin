@@ -282,4 +282,30 @@ int secp256k1_keypair_xonly_tweak_add(const secp256k1_context* ctx, secp256k1_ke
     return ret;
 }
 
+int secp256k1_keypair_tweak_add(const secp256k1_context* ctx, secp256k1_keypair *keypair, const unsigned char *tweak32) {
+    secp256k1_ge pk;
+    secp256k1_scalar sk;
+    int y_parity;
+    int ret;
+
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(keypair != NULL);
+    ARG_CHECK(tweak32 != NULL);
+
+    ret = secp256k1_keypair_load(ctx, &sk, &pk, keypair);
+    memset(keypair, 0, sizeof(*keypair));
+
+    ret &= secp256k1_ec_seckey_tweak_add_helper(&sk, tweak32);
+    ret &= secp256k1_ec_pubkey_tweak_add_helper(&pk, tweak32);
+
+    secp256k1_declassify(ctx, &ret, sizeof(ret));
+    if (ret) {
+        secp256k1_keypair_save(keypair, &sk, &pk);
+    }
+
+    secp256k1_scalar_clear(&sk);
+    return ret;
+}
+
+
 #endif

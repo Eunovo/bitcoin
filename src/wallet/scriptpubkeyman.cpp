@@ -1480,7 +1480,7 @@ Key DescriptorScriptPubKeyMan::GetPrivKeyForSilentPayment(const CScript& scriptP
     TxoutType whichType = Solver(scriptPubKey, solutions);
     if (whichType == TxoutType::NONSTANDARD || whichType == TxoutType::MULTISIG || whichType == TxoutType::WITNESS_UNKNOWN ) return {};
     std::unique_ptr<FlatSigningProvider> coin_keys = GetSigningProvider(scriptPubKey, true);
-    if (!coin_keys || coin_keys->keys.size() != 1) return {};
+    if (!coin_keys || coin_keys->keys.size() < 1) return {};
     const auto& [_, key] = *coin_keys->keys.begin();
     (void) _;
 

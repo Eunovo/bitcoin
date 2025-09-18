@@ -243,6 +243,12 @@ SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_keypair_xonly_tweak_add
     const unsigned char *tweak32
 ) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3);
 
+SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_keypair_tweak_add(
+    const secp256k1_context *ctx,
+    secp256k1_keypair *keypair,
+    const unsigned char *tweak32
+) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3);
+
 #ifdef __cplusplus
 }
 #endif

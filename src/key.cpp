@@ -442,7 +442,7 @@ KeyPair::KeyPair(const CKey& key, const uint256& output_tweak)
     auto keypair = reinterpret_cast<secp256k1_keypair*>(m_keypair->data());
     bool success = secp256k1_keypair_create(secp256k1_context_sign, keypair, UCharCast(key.data()));
     if (success) {
-        success = secp256k1_keypair_xonly_tweak_add(secp256k1_context_static, keypair, output_tweak.data());
+        success = secp256k1_keypair_tweak_add(secp256k1_context_static, keypair, output_tweak.data());
     }
     if (!success) ClearKeyPairData();
 }
