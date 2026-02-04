@@ -80,6 +80,7 @@ if(ENABLE_WALLET)
       wallet_loading.cpp
       wallet_ismine.cpp
       wallet_migration.cpp
+      wallet_silentpayments_scan.cpp
   )
   target_link_libraries(bench_bitcoin bitcoin_wallet)
 endif()
