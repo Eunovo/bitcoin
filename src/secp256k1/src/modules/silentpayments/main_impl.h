@@ -752,4 +752,110 @@ int secp256k1_silentpayments_recipient_scan_outputs(
     return 1;
 }
 
+int secp256k1_silentpayments_recipient_create_tweak(const secp256k1_context *ctx, unsigned char *output_tweak, const unsigned char *scan_key32, const secp256k1_silentpayments_prevouts_summary *prevouts_summary, const secp256k1_pubkey *spend_pubkeys, uint32_t k)
+{
+    secp256k1_scalar scan_key_scalar;
+    secp256k1_scalar output_tweak_scalar;
+    secp256k1_ge input_pubkey_ge;
+    int combined, valid_scan_key;
+    unsigned char shared_secret[33];
+
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(output_tweak != NULL);
+    ARG_CHECK(scan_key32 != NULL);
+    ARG_CHECK(prevouts_summary != NULL);
+    ARG_CHECK(spend_pubkeys != NULL);
+
+    ARG_CHECK(secp256k1_memcmp_var(&prevouts_summary->data[0], secp256k1_silentpayments_prevouts_summary_magic, 4) == 0);
+    /* If there are any issues with the recipient scan key, return early. */
+    valid_scan_key = secp256k1_scalar_set_b32_seckey(&scan_key_scalar, scan_key32);
+    secp256k1_declassify(ctx, &valid_scan_key, sizeof(valid_scan_key));
+    if (!valid_scan_key) {
+        secp256k1_scalar_clear(&scan_key_scalar);
+        return 0;
+    }
+    secp256k1_ge_from_bytes(&input_pubkey_ge, &prevouts_summary->data[5]);
+    combined = (int)prevouts_summary->data[4];
+    if (!combined) {
+        secp256k1_scalar input_hash_scalar;
+        secp256k1_scalar_set_b32(&input_hash_scalar, &prevouts_summary->data[5 + 64], NULL);
+        secp256k1_scalar_mul(&scan_key_scalar, &scan_key_scalar, &input_hash_scalar);
+    }
+    secp256k1_silentpayments_create_shared_secret(ctx, shared_secret, &input_pubkey_ge, &scan_key_scalar);
+    secp256k1_scalar_clear(&scan_key_scalar);
+
+    if (!secp256k1_silentpayments_create_output_tweak(&output_tweak_scalar, shared_secret, k)) {
+        return 0;
+    }
+    secp256k1_scalar_get_b32(output_tweak, &output_tweak_scalar);
+    secp256k1_scalar_clear(&output_tweak_scalar);
+    return 1;
+}
+
+int secp256k1_silentpayments_recipient_create_output_pubkey(const secp256k1_context *ctx, secp256k1_xonly_pubkey *output_xonly, const unsigned char *output_tweak, const secp256k1_pubkey *spend_pubkey)
+{
+    secp256k1_ge output_ge;
+    secp256k1_scalar output_tweak_scalar;
+    int overflow;
+
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(output_xonly != NULL);
+    ARG_CHECK(output_tweak != NULL);
+    ARG_CHECK(spend_pubkey != NULL);
+
+    secp256k1_scalar_set_b32(&output_tweak_scalar, output_tweak, &overflow);
+    CHECK(!overflow);
+    if (!secp256k1_pubkey_load(ctx, &output_ge, spend_pubkey)) {
+        return 0;
+    }
+    /* `tweak_add` only fails if output_tweak_scalar*G = -spend_pubkey. Considering output_tweak is the output of a hash function,
+    * this will happen only with negligible probability for honestly created spend_pubkey, but we handle this
+    * error anyway to protect against this function being called with a malicious inputs, i.e., spend_pubkey = -(_create_output_tweak(shared_secret33, k))*G
+    */
+    if (!secp256k1_eckey_pubkey_tweak_add(&output_ge, &output_tweak_scalar)) {
+        return 0;
+    };
+
+    secp256k1_xonly_pubkey_save(output_xonly, &output_ge);
+    return 1;
+}
+
+void secp256k1_silentpayments_recipient_create_output_label(const secp256k1_context *ctx, unsigned char **label_candidates, const secp256k1_xonly_pubkey *tx_output, const secp256k1_xonly_pubkey *sp_output) {
+    secp256k1_ge label_ge, output_ge, output_negated_ge, tx_output_ge;
+    secp256k1_gej tx_output_gej, label_gej;
+
+    secp256k1_xonly_pubkey_load(ctx, &tx_output_ge, tx_output);
+    secp256k1_xonly_pubkey_load(ctx, &output_ge, sp_output);
+    secp256k1_gej_set_ge(&tx_output_gej, &tx_output_ge);
+    /* Negate the generated output and calculate first scan label candidate:
+     *     label1 = tx_output - generated_output
+     */
+    secp256k1_ge_neg(&output_negated_ge, &output_ge);
+    secp256k1_gej_add_ge_var(&label_gej, &tx_output_gej, &output_negated_ge, NULL);
+    secp256k1_ge_set_gej_var(&label_ge, &label_gej);
+    /* Serialize must succeed because the point was just loaded.
+     *
+     * Note: serialize will also fail if label_ge is the point at infinity, but we know
+     * this cannot happen since we only hit this branch if tx_output != output_xonly.
+     * Thus, we know that label_ge = tx_output_gej + output_negated_ge cannot be the
+     * point at infinity.
+     */
+    secp256k1_eckey_pubkey_serialize33(&label_ge, label_candidates[0]);
+
+    /* Negate the tx_output and calculate second scan label candidate:
+     *     label2 = -tx_output - generated_output
+     */
+    secp256k1_gej_neg(&label_gej, &tx_output_gej);
+    secp256k1_gej_add_ge_var(&label_gej, &label_gej, &output_negated_ge, NULL);
+    secp256k1_ge_set_gej_var(&label_ge, &label_gej);
+    /* Serialize must succeed because the point was just loaded.
+     *
+     * Note: serialize will also fail if label_ge is the point at infinity, but we know
+     * this cannot happen since we only hit this branch if tx_output != output_xonly.
+     * Thus, we know that label_ge = -tx_output_gej + output_negated_ge cannot be the
+     * point at infinity.
+    */
+    secp256k1_eckey_pubkey_serialize33(&label_ge, label_candidates[1]);
+}
+
 #endif

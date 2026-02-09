@@ -183,5 +183,13 @@ std::optional<PrevoutsSummary> GetSilentPaymentsPrevoutsSummary(const std::vecto
  * @return std::<optional<std::vector<SilentPaymentOutput>> The found outputs, nullopt if none found.
  */
 std::optional<std::vector<SilentPaymentOutput>> ScanForSilentPaymentOutputs(const CKey& scan_key, const PrevoutsSummary& prevouts_summary, const CPubKey& spend_pubkey, const std::vector<XOnlyPubKey>& output_pub_keys, const std::map<SilentPaymentLabel, uint256>& labels);
+
+std::optional<std::vector<SilentPaymentOutput>> ParallelScanForSilentPaymentOutputs(
+    const CKey& scan_key,
+    const PrevoutsSummary& prevouts_summary,
+    const CPubKey& recipient_spend_pubkey,
+    const std::vector<XOnlyPubKey>& tx_outputs,
+    const std::map<SilentPaymentLabel, uint256>& labels
+);
 }; // namespace bip352
 #endif // BITCOIN_COMMON_BIP352_H

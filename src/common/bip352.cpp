@@ -381,4 +381,134 @@ std::optional<std::vector<SilentPaymentOutput>> ScanForSilentPaymentOutputs(
     }
     return outputs;
 }
+
+std::optional<std::vector<SilentPaymentOutput>> ParallelScanForSilentPaymentOutputs(
+    const CKey& scan_key,
+    const PrevoutsSummary& prevouts_summary,
+    const CPubKey& recipient_spend_pubkey,
+    const std::vector<XOnlyPubKey>& tx_outputs,
+    const std::map<SilentPaymentLabel, uint256>& labels
+) {
+    secp256k1_pubkey spend_pubkey_obj;
+    std::vector<SilentPaymentOutput> found_outputs;
+    std::vector<secp256k1_xonly_pubkey> tx_output_objs;
+    found_outputs.reserve(tx_outputs.size());
+    tx_output_objs.reserve(tx_outputs.size());
+
+    for (auto& tx_output: tx_outputs) {
+        secp256k1_xonly_pubkey tx_output_obj;
+        if (!secp256k1_xonly_pubkey_parse(
+            secp256k1_context_static,
+            &tx_output_obj,
+            tx_output.begin()
+        )) {
+            return {};
+        }
+        tx_output_objs.emplace_back(tx_output_obj);
+    }
+
+    if (!secp256k1_ec_pubkey_parse(
+        secp256k1_context_static,
+        &spend_pubkey_obj,
+        recipient_spend_pubkey.begin(),
+        recipient_spend_pubkey.size())
+    ) {
+        return {};
+    }
+
+    uint32_t k = 0;
+    while (k < tx_outputs.size()) {
+        uint256 tweak;
+
+        if (!secp256k1_silentpayments_recipient_create_tweak(
+            secp256k1_context_static,
+            tweak.data(),
+            UCharCast(scan_key.begin()),
+            prevouts_summary.Get(),
+            &spend_pubkey_obj,
+            k)
+        ) {
+            return {};
+        }
+
+        secp256k1_xonly_pubkey unlabeled_output;
+        if (!secp256k1_silentpayments_recipient_create_output_pubkey(
+            secp256k1_context_static,
+            &unlabeled_output,
+            tweak.data(),
+            &spend_pubkey_obj
+        )) {
+            return {};
+        }
+
+        bool found = false;
+        uint256 label_tweak;
+        for (size_t i = 0; i < tx_output_objs.size(); i++) {
+            if (found) break;
+            if (secp256k1_xonly_pubkey_cmp(
+                secp256k1_context_static,
+                &tx_output_objs[i],
+                &unlabeled_output
+            ) == 0) {
+                found = true;
+                SilentPaymentOutput found_output{tx_outputs[i], tweak, {}};
+                found_outputs.emplace_back(found_output);
+                break;
+            }
+            if (labels.size() == 0) continue;
+            base_blob<264> label_candidates[2];
+            std::array<unsigned char*, 2> label_candidate_ptrs;
+            label_candidate_ptrs[0] = label_candidates[0].data();
+            label_candidate_ptrs[1] = label_candidates[1].data();
+
+            secp256k1_silentpayments_recipient_create_output_label(
+                secp256k1_context_static,
+                label_candidate_ptrs.data(),
+                &tx_output_objs[i],
+                &unlabeled_output
+            );
+
+            for (auto candidate_ptr: label_candidate_ptrs) {
+                secp256k1_silentpayments_label label_obj;
+                bool ret = secp256k1_silentpayments_recipient_label_parse(
+                    secp256k1_context_static, &label_obj, candidate_ptr);
+                assert(ret);
+                SilentPaymentLabel label{std::move(label_obj)};
+                // Find the pubkey in the map
+                auto it = labels.find(label);
+                if (it != labels.end()) {
+                    // Return a pointer to the uint256 label tweak if found
+                    // so it can be added to t_k
+                    label_tweak = it->second;
+                    found = true;
+                    /* This is extremely unlikely to fail in that it can only really fail if label_tweak
+                    * is the negation of the shared secret tweak. But since both tweak and label_tweak are
+                    * created by hashing data, practically speaking this would only happen if an attacker
+                    * tricked us into using a particular label_tweak (deviating from the protocol).
+                    *
+                    * Furthermore, although technically a failure for ec_seckey_tweak_add, this is not treated
+                    * as a failure for Silent Payments because the output is still spendable with just the
+                    * spend secret key. We set `tweak = 0` for this case.
+                    */
+                    if (!secp256k1_ec_seckey_tweak_add(
+                        secp256k1_context_static,
+                        tweak.data(),
+                        label_tweak.data()
+                    )) {
+                        tweak.SetNull();
+                    }
+                    SilentPaymentOutput found_output{tx_outputs[i], tweak, label};
+                    found_outputs.emplace_back(found_output);
+                    break;
+                }
+            }
+        }
+
+        if (!found) break;
+        k++;
+    }
+
+    return found_outputs;
+}
+
 }; // namespace bip352

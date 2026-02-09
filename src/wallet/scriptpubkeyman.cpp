@@ -1696,7 +1696,7 @@ std::pair<bool, std::vector<bip352::SilentPaymentOutput>> SilentPaymentDescripto
 
     assert(m_scan_key.IsValid());
     assert(m_spend_pubkey.IsFullyValid());
-    auto found_outputs{bip352::ScanForSilentPaymentOutputs(
+    auto found_outputs{bip352::ParallelScanForSilentPaymentOutputs(
         m_scan_key, prevouts_summary, m_spend_pubkey, output_keys, {ChangeLabel()})};
     if (!found_outputs.has_value()) {
         return {false, {}};
