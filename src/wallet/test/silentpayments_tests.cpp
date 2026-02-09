@@ -21,7 +21,6 @@
 #include <wallet/wallet.h>
 
 #include <boost/test/unit_test.hpp>
-#include <stdio.h>
 
 using node::MAX_BLOCKFILE_SIZE;
 
@@ -57,6 +56,8 @@ BOOST_FIXTURE_TEST_CASE(silentpayments_scan_test, TestChain100Setup)
 
     auto spdest = wallet.GetNewDestination(OutputType::SILENT_PAYMENTS, "test");
     BOOST_CHECK(spdest.has_value());
+    auto spchangedest = wallet.GetNewChangeDestination(OutputType::SILENT_PAYMENTS);
+    BOOST_CHECK(spchangedest.has_value());
 
     const size_t NUM_OUTPUTS = 10; // 23246 outputs is the max that will fit in this block
     // 1000 sats per output, allows up to 5000000 outputs to fully spend the coinbase
@@ -64,7 +65,11 @@ BOOST_FIXTURE_TEST_CASE(silentpayments_scan_test, TestChain100Setup)
 
     std::map<size_t, V0SilentPaymentDestination> dests;
     for (size_t i = 0; i < NUM_OUTPUTS; ++i) {
-        dests.emplace(i, std::get<V0SilentPaymentDestination>(*spdest));
+        if (i <= NUM_OUTPUTS / 2) {
+            dests.emplace(i, std::get<V0SilentPaymentDestination>(*spdest));
+        } else {
+            dests.emplace(i, std::get<V0SilentPaymentDestination>(*spchangedest));
+        }
     }
 
     auto outputSpks = bip352::GenerateSilentPaymentTaprootDestinations(
@@ -118,9 +123,10 @@ BOOST_FIXTURE_TEST_CASE(silentpayments_scan_test, TestChain100Setup)
         BOOST_CHECK(result.last_scanned_height.has_value());
         BOOST_CHECK(*result.last_scanned_height == newTip->nHeight);
 
-        BOOST_CHECK(GetBalance(wallet).m_mine_untrusted_pending == 0);
-        BOOST_CHECK(GetBalance(wallet).m_mine_immature == 0);
-        BOOST_CHECK(GetBalance(wallet).m_mine_trusted == 1000 * NUM_OUTPUTS);
+        auto balance = GetBalance(wallet);
+        BOOST_CHECK(balance.m_mine_untrusted_pending == 0);
+        BOOST_CHECK(balance.m_mine_immature == 0);
+        BOOST_CHECK(balance.m_mine_trusted == 1000 * NUM_OUTPUTS);
     }
 }
 BOOST_AUTO_TEST_SUITE_END()
