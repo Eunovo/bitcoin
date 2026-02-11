@@ -12,6 +12,7 @@
 #include <addresstype.h>
 #include <coins.h>
 #include <serialize.h>
+#include <util/threadpool.h>
 
 #include <vector>
 #include <variant>
@@ -185,6 +186,7 @@ std::optional<PrevoutsSummary> GetSilentPaymentsPrevoutsSummary(const std::vecto
 std::optional<std::vector<SilentPaymentOutput>> ScanForSilentPaymentOutputs(const CKey& scan_key, const PrevoutsSummary& prevouts_summary, const CPubKey& spend_pubkey, const std::vector<XOnlyPubKey>& output_pub_keys, const std::map<SilentPaymentLabel, uint256>& labels);
 
 std::optional<std::vector<SilentPaymentOutput>> ParallelScanForSilentPaymentOutputs(
+    ThreadPool& m_threadpool,
     const CKey& scan_key,
     const PrevoutsSummary& prevouts_summary,
     const CPubKey& recipient_spend_pubkey,

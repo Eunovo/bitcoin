@@ -13,6 +13,7 @@
 #include <script/sign.h>
 #include <script/signingprovider.h>
 #include <sync.h>
+#include <util/threadpool.h>
 #include <validation.h>
 #include <wallet/test/util.h>
 #include <wallet/receive.h>
@@ -26,7 +27,12 @@ static int SATS_PER_OUTPUT = 1;
 static int FEE_SATS = 1000;
 static size_t SP_RECIPIENT_GROUP_LIMIT = 1000;
 
-static void WalletSPScan(benchmark::Bench& bench, size_t num_txs, size_t outputs_per_tx, std::optional<size_t> n_payments = {})
+static void WalletSPScan(
+    benchmark::Bench& bench,
+    size_t num_txs,
+    size_t outputs_per_tx,
+    std::optional<size_t> n_payments = {},
+    size_t n_workers = 1)
 {
     auto testsetup = TestChain100Setup();
     auto& m_node = testsetup.m_node;
@@ -67,7 +73,9 @@ static void WalletSPScan(benchmark::Bench& bench, size_t num_txs, size_t outputs
     CBlockIndex* currentTip = WITH_LOCK(Assert(m_node.chainman)->GetMutex(), return m_node.chainman->ActiveChain().Tip());
     assert(nHeight == currentTip->nHeight);
 
-    CWallet wallet(m_node.chain.get(), "", CreateMockableWalletDatabase());
+    ThreadPool threadpool{"spbench"};
+    CWallet wallet{m_node.chain.get(), "", CreateMockableWalletDatabase(), &threadpool};
+    if (n_workers > 1) threadpool.Start(n_workers - 1);
     {
         LOCK(wallet.cs_wallet);
         LOCK(Assert(m_node.chainman)->GetMutex());
@@ -129,8 +137,14 @@ static void WalletSPScan(benchmark::Bench& bench, size_t num_txs, size_t outputs
 
     assert(GetBalance(wallet).m_mine_trusted == 0);
     int expected_balance = SATS_PER_OUTPUT * num_sp_outputs * num_txs;
-
-    bench.epochs(1).epochIterations(1).unit("block").run([&] {
+    std::string name = strprintf(
+        "WalletSPScan_%zuTx_%zuOutputs_%zuPayments_%zuWorkers",
+        num_txs,
+        outputs_per_tx,
+        n_payments ? *n_payments : outputs_per_tx,
+        n_workers
+    );
+    bench.epochs(1).epochIterations(1).unit("block").run(name, [&] {
         WalletRescanReserver reserver(wallet);
         reserver.reserve();
         auto result = wallet.ScanForWalletTransactions(
@@ -151,14 +165,15 @@ static void WalletSPScan(benchmark::Bench& bench, size_t num_txs, size_t outputs
  * Max Txs with a WitnessV0KeyHash input is 8245
  * Max Txs with a WitnessV1Taproot input is 8986
  */
-static void WalletSPScanMaxTxOneOutput(benchmark::Bench& bench) { WalletSPScan(bench, 8986, 1); }
-static void WalletSPScanOneTxMaxOutputs(benchmark::Bench& bench) { WalletSPScan(bench, 1, 23246); }
-static void WalletSPScanAvgTxAvgOutputs(benchmark::Bench& bench) { WalletSPScan(bench, 3200, 3); }
-static void WalletSPScanNoPayments(benchmark::Bench& bench) { WalletSPScan(bench, 1, 1000, 0); }
-static void WalletSPScanTenPayments(benchmark::Bench& bench) { WalletSPScan(bench, 1, 1000, 10); }
-BENCHMARK(WalletSPScanMaxTxOneOutput);
-BENCHMARK(WalletSPScanOneTxMaxOutputs);
-BENCHMARK(WalletSPScanAvgTxAvgOutputs);
-BENCHMARK(WalletSPScanNoPayments);
-BENCHMARK(WalletSPScanTenPayments);
+static void WalletParallelSPScan(benchmark::Bench& bench) {
+    std::vector<size_t> threads = {1, 2, 4, 8};
+    for (size_t n_threads: threads) {
+        WalletSPScan(bench, 8986, 1, {}, n_threads);
+        WalletSPScan(bench, 1, 23246, {}, n_threads);
+        WalletSPScan(bench, 3200, 3, {}, n_threads);
+        WalletSPScan(bench, 1, 1000, 0, n_threads);
+        WalletSPScan(bench, 1, 1000, 10, n_threads);
+    }
+}
+BENCHMARK(WalletParallelSPScan);
 } // namespace wallet

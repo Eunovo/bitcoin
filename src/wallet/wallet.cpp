@@ -3708,7 +3708,7 @@ DescriptorScriptPubKeyMan& CWallet::LoadDescriptorScriptPubKeyMan(uint256 id, Wa
     if (IsWalletFlagSet(WALLET_FLAG_EXTERNAL_SIGNER)) {
         spk_manager = new ExternalSignerScriptPubKeyMan(*this, desc, m_keypool_size);
     } else if (desc.descriptor->GetOutputType() == OutputType::SILENT_PAYMENTS) {
-        spk_manager = new SilentPaymentDescriptorScriptPubKeyMan(*this, desc);
+        spk_manager = new SilentPaymentDescriptorScriptPubKeyMan(*this, desc, this->m_thread_pool);
     } else {
         spk_manager = new DescriptorScriptPubKeyMan(*this, desc, m_keypool_size);
     }
@@ -3721,7 +3721,7 @@ DescriptorScriptPubKeyMan& CWallet::SetupDescriptorScriptPubKeyMan(WalletBatch& 
     AssertLockHeld(cs_wallet);
     std::unique_ptr<DescriptorScriptPubKeyMan> spk_manager;
     if (output_type == OutputType::SILENT_PAYMENTS) {
-        spk_manager = std::unique_ptr<DescriptorScriptPubKeyMan>(new SilentPaymentDescriptorScriptPubKeyMan(*this));
+        spk_manager = std::unique_ptr<DescriptorScriptPubKeyMan>(new SilentPaymentDescriptorScriptPubKeyMan(*this, this->m_thread_pool));
     } else {
         spk_manager = std::unique_ptr<DescriptorScriptPubKeyMan>(new DescriptorScriptPubKeyMan(*this, m_keypool_size));
     }
@@ -3935,7 +3935,7 @@ util::Result<std::reference_wrapper<DescriptorScriptPubKeyMan>> CWallet::AddWall
     } else {
         std::unique_ptr<DescriptorScriptPubKeyMan> new_spk_man;
         if (desc.descriptor->GetOutputType() == OutputType::SILENT_PAYMENTS) {
-            new_spk_man = std::unique_ptr<DescriptorScriptPubKeyMan>(new SilentPaymentDescriptorScriptPubKeyMan(*this, desc));
+            new_spk_man = std::unique_ptr<DescriptorScriptPubKeyMan>(new SilentPaymentDescriptorScriptPubKeyMan(*this, desc, this->m_thread_pool));
         } else {
             new_spk_man = std::unique_ptr<DescriptorScriptPubKeyMan>(new DescriptorScriptPubKeyMan(*this, desc, m_keypool_size));
         }

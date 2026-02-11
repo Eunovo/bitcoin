@@ -18,6 +18,7 @@
 #include <script/script.h>
 #include <script/signingprovider.h>
 #include <util/result.h>
+#include <util/threadpool.h>
 #include <util/time.h>
 #include <wallet/crypter.h>
 #include <wallet/types.h>
@@ -423,6 +424,8 @@ private:
     CKey m_scan_key GUARDED_BY(cs_desc_man);
     CPubKey m_spend_pubkey GUARDED_BY(cs_desc_man);
 
+    ThreadPool* m_threadpool;
+
     // Adds a tweak to m_map_spk_tweaks and writes to provided batch
     bool AddOutputWithDB(WalletBatch& batch, const bip352::SilentPaymentOutput& output);
 
@@ -431,12 +434,12 @@ private:
     std::unique_ptr<FlatSigningProvider> GetSigningProvider(const CScript& script, bool include_private = false) const override;
 
 public:
-    SilentPaymentDescriptorScriptPubKeyMan(WalletStorage& storage, WalletDescriptor& descriptor)
-        : DescriptorScriptPubKeyMan(storage, descriptor, 0)
+    SilentPaymentDescriptorScriptPubKeyMan(WalletStorage& storage, WalletDescriptor& descriptor, ThreadPool* threadpool)
+        : DescriptorScriptPubKeyMan(storage, descriptor, 0), m_threadpool(threadpool)
     {}
 
-    SilentPaymentDescriptorScriptPubKeyMan(WalletStorage& storage)
-        : DescriptorScriptPubKeyMan(storage, 0)
+    SilentPaymentDescriptorScriptPubKeyMan(WalletStorage& storage, ThreadPool* threadpool)
+        : DescriptorScriptPubKeyMan(storage, 0), m_threadpool(threadpool)
     {}
 
     util::Result<CTxDestination> GetNewDestination(const OutputType type) override;

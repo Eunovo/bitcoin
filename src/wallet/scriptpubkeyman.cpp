@@ -1696,8 +1696,15 @@ std::pair<bool, std::vector<bip352::SilentPaymentOutput>> SilentPaymentDescripto
 
     assert(m_scan_key.IsValid());
     assert(m_spend_pubkey.IsFullyValid());
-    auto found_outputs{bip352::ParallelScanForSilentPaymentOutputs(
-        m_scan_key, prevouts_summary, m_spend_pubkey, output_keys, {ChangeLabel()})};
+    std::optional<std::vector<bip352::SilentPaymentOutput>> found_outputs;
+    if (this->m_threadpool && this->m_threadpool->WorkersCount() > 0) {
+        found_outputs = bip352::ParallelScanForSilentPaymentOutputs(
+            *this->m_threadpool, m_scan_key, prevouts_summary,
+            m_spend_pubkey, output_keys, {ChangeLabel()});
+    } else {
+        found_outputs = bip352::ScanForSilentPaymentOutputs(
+            m_scan_key, prevouts_summary, m_spend_pubkey, output_keys, {ChangeLabel()});
+    }
     if (!found_outputs.has_value()) {
         return {false, {}};
     }

@@ -10,6 +10,7 @@
 #include <pubkey.h>
 #include <secp256k1.h>
 #include <span.h>
+#include <sync.h>
 
 #include <secp256k1_silentpayments.h>
 #include <streams.h>
@@ -383,6 +384,7 @@ std::optional<std::vector<SilentPaymentOutput>> ScanForSilentPaymentOutputs(
 }
 
 std::optional<std::vector<SilentPaymentOutput>> ParallelScanForSilentPaymentOutputs(
+    ThreadPool& threadpool,
     const CKey& scan_key,
     const PrevoutsSummary& prevouts_summary,
     const CPubKey& recipient_spend_pubkey,
@@ -394,6 +396,10 @@ std::optional<std::vector<SilentPaymentOutput>> ParallelScanForSilentPaymentOutp
     std::vector<secp256k1_xonly_pubkey> tx_output_objs;
     found_outputs.reserve(tx_outputs.size());
     tx_output_objs.reserve(tx_outputs.size());
+
+    Mutex mutex;
+    std::vector<std::future<void>> futures;
+    futures.reserve(tx_outputs.size());
 
     for (auto& tx_output: tx_outputs) {
         secp256k1_xonly_pubkey tx_output_obj;
