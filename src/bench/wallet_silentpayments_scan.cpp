@@ -25,7 +25,6 @@ namespace wallet {
 
 static int SATS_PER_OUTPUT = 1;
 static int FEE_SATS = 1000;
-static size_t SP_RECIPIENT_GROUP_LIMIT = 1000;
 
 static void WalletSPScan(
     benchmark::Bench& bench,
@@ -88,8 +87,8 @@ static void WalletSPScan(
     assert(spdest.has_value());
 
     const size_t num_sp_outputs = n_payments ?
-     std::min(SP_RECIPIENT_GROUP_LIMIT, *n_payments) :
-     std::min(SP_RECIPIENT_GROUP_LIMIT, outputs_per_tx);
+        std::min(bip352::SP_RECIPIENT_GROUP_LIMIT, *n_payments) :
+        std::min(bip352::SP_RECIPIENT_GROUP_LIMIT, outputs_per_tx);
     assert(num_sp_outputs <= outputs_per_tx); // n_payments must not be more that outputs_per_tx
     std::map<size_t, V0SilentPaymentDestination> dests;
     for (size_t i = 0; i < num_sp_outputs; ++i) {
