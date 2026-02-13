@@ -23,6 +23,8 @@ namespace bip352 {
 
 using PubKey = std::variant<CPubKey, XOnlyPubKey>;
 
+static size_t SP_RECIPIENT_GROUP_LIMIT = 1000;
+
 class PrevoutsSummaryImpl;
 class PrevoutsSummary
 {
