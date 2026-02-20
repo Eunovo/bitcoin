@@ -1308,6 +1308,27 @@ SigningResult DescriptorScriptPubKeyMan::SignMessage(const std::string& message,
 
 std::optional<PSBTError> DescriptorScriptPubKeyMan::FillPSBT(PartiallySignedTransaction& psbtx, const PrecomputedTransactionData& txdata, std::optional<int> sighash_type, bool sign, bool bip32derivs, int* n_signed, bool finalize) const
 {
+    // Log descriptor in public, private, and normalized forms
+    {
+        LOCK(cs_desc_man);
+        std::string public_desc = m_wallet_descriptor.descriptor->ToString();
+        WalletLogPrintf("FillPSBT: Descriptor (public): %s\n", public_desc);
+
+        std::string private_desc;
+        if (GetDescriptorString(private_desc, /*priv=*/true)) {
+            WalletLogPrintf("FillPSBT: Descriptor (private): %s\n", private_desc);
+        } else {
+            WalletLogPrintf("FillPSBT: Descriptor (private): [unable to retrieve private descriptor]\n");
+        }
+
+        std::string normalized_desc;
+        if (GetDescriptorString(normalized_desc, /*priv=*/false)) {
+            WalletLogPrintf("FillPSBT: Descriptor (normalized): %s\n", normalized_desc);
+        } else {
+            WalletLogPrintf("FillPSBT: Descriptor (normalized): [unable to retrieve normalized descriptor]\n");
+        }
+    }
+
     if (n_signed) {
         *n_signed = 0;
     }
@@ -1343,7 +1364,21 @@ std::optional<PSBTError> DescriptorScriptPubKeyMan::FillPSBT(PartiallySignedTran
             pubkeys.reserve(input.hd_keypaths.size() + 2);
 
             // ECDSA Pubkeys
-            for (const auto& [pk, _] : input.hd_keypaths) {
+            for (const auto& [pk, origin] : input.hd_keypaths) {
+                std::string path_str;
+                for (size_t j = 0; j < origin.path.size(); ++j) {
+                    if (j > 0) path_str += "/";
+                    uint32_t index = origin.path[j];
+                    if (index & 0x80000000) {
+                        path_str += strprintf("%d'", index & ~0x80000000);
+                    } else {
+                        path_str += strprintf("%d", index);
+                    }
+                }
+                // Log KeyOriginInfo
+                WalletLogPrintf("PSBT input %d: Found KeyOriginInfo for pubkey %s - fingerprint: %02x%02x%02x%02x, path: %s\n",
+                    i, HexStr(pk),
+                    origin.fingerprint[0], origin.fingerprint[1], origin.fingerprint[2], origin.fingerprint[3], path_str);
                 pubkeys.push_back(pk);
             }
 

@@ -61,12 +61,14 @@ import json
 import os
 
 
+KEYPOOL_SIZE = 10   # smaller than default size to speed-up test
+
 class PSBTTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 3
         self.extra_args = [
             ["-walletrbf=1", "-addresstype=bech32", "-changetype=bech32"], #TODO: Remove address type restrictions once taproot has psbt extensions
-            ["-walletrbf=0", "-changetype=legacy"],
+            ["-walletrbf=0", "-changetype=legacy", "-keypool={}".format(KEYPOOL_SIZE)],
             []
         ]
         # whitelist peers to speed up tx relay / mempool sync
@@ -144,6 +146,71 @@ class PSBTTest(BitcoinTestFramework):
         assert_equal(online_node.gettxout(txid,0)["confirmations"], 1)
 
         wonline.unloadwallet()
+
+        # Reconnect
+        self.connect_nodes(1, 0)
+        self.connect_nodes(0, 2)
+
+    def test_offline_gap_limit(self):
+        self.log.info("Test offline signing with addresses beyond initial keypool")
+        offline_node = self.nodes[1]
+        online_node = self.nodes[2]
+
+        # Create offline wallet with small keypool
+        offline_node.createwallet(wallet_name='offline_small_keypool', descriptors=True)
+        offline_signer = offline_node.get_wallet_rpc('offline_small_keypool')
+
+        # Get the descriptor from the offline wallet
+        descs = offline_signer.listdescriptors()["descriptors"]
+
+        # Create watch-only wallet on online node with the same descriptors
+        online_node.createwallet(wallet_name='watch_only', disable_private_keys=True, descriptors=True, blank=True)
+        watch_only = online_node.get_wallet_rpc('watch_only')
+
+        # Disconnect offline node from others
+        self.disconnect_nodes(0, 1)
+        self.disconnect_nodes(1, 2)
+
+        import_res = watch_only.importdescriptors(descs)
+        assert_equal(import_res[0]["success"], True)
+
+        # Generate several addresses on the watch-only wallet to gap limit of offline wallet
+        for _ in range(KEYPOOL_SIZE):
+            watch_only.getnewaddress()
+
+        # Fund one of the later addresses (e.g., the 20th address)
+        target_addr = watch_only.getnewaddress()
+        default_wallet = self.nodes[0].get_wallet_rpc(self.default_wallet_name)
+        default_wallet.sendtoaddress(address=target_addr, amount=1.0)
+        self.generate(self.nodes[0], nblocks=1, sync_fun=lambda: self.sync_all([online_node, self.nodes[0]]))
+
+        # Verify the watch-only wallet can see the transaction
+        utxos = watch_only.listunspent(addresses=[target_addr])
+        assert_equal(len(utxos), 1)
+        assert_equal(utxos[0]["address"], target_addr)
+
+        # Create a PSBT on the watch-only (online) wallet to spend this UTXO
+        dest_addr = default_wallet.getnewaddress()
+        psbt = watch_only.walletcreatefundedpsbt(
+            inputs=[{"txid": utxos[0]["txid"], "vout": utxos[0]["vout"]}],
+            outputs=[{dest_addr: 0.999}],
+            options={"fee_rate": 1}
+        )["psbt"]
+
+        # Verify the offline wallet can sign the PSBT
+        signed_psbt = offline_signer.walletprocesspsbt(psbt)
+        assert_equal(signed_psbt["complete"], True)
+
+        # Broadcast the transaction from the online node
+        txid = online_node.sendrawtransaction(signed_psbt["hex"])
+        self.generate(online_node, nblocks=1, sync_fun=lambda: self.sync_all([online_node, self.nodes[0]]))
+
+        # Verify transaction was confirmed
+        assert_equal(online_node.gettxout(txid, 0)["confirmations"], 1)
+
+        # Cleanup
+        watch_only.unloadwallet()
+        offline_signer.unloadwallet()
 
         # Reconnect
         self.connect_nodes(1, 0)
@@ -859,6 +926,7 @@ class PSBTTest(BitcoinTestFramework):
 
         self.test_utxo_conversion()
         self.test_psbt_incomplete_after_invalid_modification()
+        self.test_offline_gap_limit()
 
         self.test_input_confs_control()
 
