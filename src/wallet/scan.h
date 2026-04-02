@@ -43,6 +43,9 @@ private:
     std::deque<std::pair<uint256, int>> m_blocks;
     size_t m_max_blockqueue_size{1000};
 
+    friend class FilterExecutor;
+    friend class InlineFilterExecutor;
+
     std::optional<std::pair<uint256, int>> ReadNextBlock(ScanResult& result);
     /**
      * @return the number of blocks to be scanned in m_blocks
