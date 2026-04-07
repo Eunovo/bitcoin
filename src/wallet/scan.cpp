@@ -233,8 +233,8 @@ public:
             if (block) m_scanner.m_blocks.emplace_back(*block);
             return true;
         }
-        if (!IsResultReady() && m_scanner.m_thread_pool->WorkQueueSize() > 0)
-            m_scanner.m_thread_pool->ProcessTask();
+        // if (!IsResultReady() && m_scanner.m_thread_pool->WorkQueueSize() > 0)
+        //     m_scanner.m_thread_pool->ProcessTask();
         return false;
     }
 
