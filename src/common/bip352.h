@@ -13,6 +13,7 @@
 #include <uint256.h>
 #include <util/hasher.h>
 
+#include <map>
 #include <unordered_map>
 #include <vector>
 #include <variant>
@@ -157,5 +158,6 @@ std::optional<PrevoutsSummary> GetSilentPaymentsPrevoutsSummary(const std::vecto
  * @return std::<optional<std::vector<SilentPaymentsOutput>> The found outputs, nullopt if none found.
  */
 std::optional<std::vector<SilentPaymentsOutput>> ScanForSilentPaymentsOutputs(const CKey& scan_key, const PrevoutsSummary& prevouts_summary, const CPubKey& spend_pubkey, const std::vector<XOnlyPubKey>& output_pub_keys, const std::unordered_map<CKeyID, uint256, SaltedSipHasher>& labels);
+std::optional<std::vector<SilentPaymentsOutput>> ScanForSilentPaymentsOutputs(const CKey& scan_key, const PrevoutsSummary& prevouts_summary, const CPubKey& spend_pubkey, const std::vector<XOnlyPubKey>& output_pub_keys, const std::map<CPubKey, uint256>& labels);
 }; // namespace bip352
 #endif // BITCOIN_COMMON_BIP352_H

@@ -272,6 +272,16 @@ const unsigned char* LabelLookupCallback(const unsigned char* key, const void* c
     return nullptr;
 }
 
+const unsigned char* LabelLookupCallbackOrderedMap(const unsigned char* key, const void* context) {
+    auto label_context = static_cast<const std::map<CPubKey, uint256>*>(context);
+    CPubKey label{key, key + CPubKey::COMPRESSED_SIZE};
+    auto it = label_context->find(label);
+    if (it != label_context->end()) {
+        return it->second.begin();
+    }
+    return nullptr;
+}
+
 std::pair<CPubKey, uint256> CreateLabel(const CKey& scan_key, const int m) {
     secp256k1_silentpayments_label label_obj;
     unsigned char label_tweak[32];
@@ -349,6 +359,64 @@ std::optional<std::vector<SilentPaymentsOutput>> ScanForSilentPaymentsOutputs(
         prevouts_summary.Get(),
         &spend_pubkey_obj,
         LabelLookupCallback,
+        &labels
+    );
+    assert(ret);
+    if (n_found_outputs == 0) return {};
+    std::vector<SilentPaymentsOutput> outputs;
+    for (size_t i = 0; i < n_found_outputs; i++) {
+        SilentPaymentsOutput sp_output;
+        ret = secp256k1_xonly_pubkey_serialize(secp256k1_context_static, sp_output.output.begin(), &found_output_objs[i].output);
+        assert(ret);
+        sp_output.tweak = uint256{found_output_objs[i].tweak};
+        if (found_output_objs[i].found_with_label) {
+            CPubKey label;
+            ret = secp256k1_silentpayments_recipient_label_serialize(secp256k1_context_static, (unsigned char *)label.begin(), &found_output_objs[i].label);
+            sp_output.label = label;
+        }
+        outputs.push_back(sp_output);
+    }
+    return outputs;
+}
+std::optional<std::vector<SilentPaymentsOutput>> ScanForSilentPaymentsOutputs(
+    const CKey& scan_key,
+    const PrevoutsSummary& prevouts_summary,
+    const CPubKey& recipient_spend_pubkey,
+    const std::vector<XOnlyPubKey>& tx_outputs,
+    const std::map<CPubKey, uint256>& labels
+) {
+    bool ret;
+    secp256k1_pubkey spend_pubkey_obj;
+    std::vector<secp256k1_silentpayments_found_output> found_output_objs;
+    std::vector<secp256k1_silentpayments_found_output *> found_output_ptrs;
+    std::vector<secp256k1_xonly_pubkey> tx_output_objs;
+    std::vector<const secp256k1_xonly_pubkey *> tx_output_ptrs;
+    found_output_objs.reserve(tx_outputs.size());
+    found_output_ptrs.reserve(tx_outputs.size());
+    tx_output_objs.reserve(tx_outputs.size());
+    tx_output_ptrs.reserve(tx_outputs.size());
+
+    for (const XOnlyPubKey& tx_output : tx_outputs) {
+        secp256k1_xonly_pubkey tx_output_obj;
+        ret = secp256k1_xonly_pubkey_parse(secp256k1_context_static, &tx_output_obj, tx_output.data());
+        if (!ret) continue;
+        tx_output_objs.push_back(tx_output_obj);
+        tx_output_ptrs.push_back(&tx_output_objs.back());
+        found_output_objs.emplace_back();
+        found_output_ptrs.push_back(&found_output_objs.back());
+    }
+    if (tx_output_ptrs.empty()) return {};
+
+    ret = secp256k1_ec_pubkey_parse(secp256k1_context_static, &spend_pubkey_obj, recipient_spend_pubkey.data(), recipient_spend_pubkey.size());
+    assert(ret);
+    uint32_t n_found_outputs = 0;
+    ret = secp256k1_silentpayments_recipient_scan_outputs(secp256k1_context_static,
+        found_output_ptrs.data(), &n_found_outputs,
+        tx_output_ptrs.data(), tx_output_ptrs.size(),
+        UCharCast(scan_key.begin()),
+        prevouts_summary.Get(),
+        &spend_pubkey_obj,
+        LabelLookupCallbackOrderedMap,
         &labels
     );
     assert(ret);
